@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tic Tac Toe: GPT vs Claude</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <!-- Modal for selecting number of games -->
+    <div id="modal-overlay" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-glow"></div>
+            <h2>🎮 AI Battle Arena</h2>
+            <p>GPT 5.2 High vs Claude Opus 4.5 Thinking</p>
+            <label for="game-count">How many games to run?</label>
+            <select id="game-count">
+                <option value="1">1 Game</option>
+                <option value="2">2 Games</option>
+                <option value="3" selected>3 Games</option>
+                <option value="4">4 Games</option>
+                <option value="5">5 Games</option>
+                <option value="6">6 Games</option>
+                <option value="7">7 Games</option>
+                <option value="8">8 Games</option>
+                <option value="9">9 Games</option>
+                <option value="10">10 Games</option>
+            </select>
+            <button id="btn-run" class="btn-run">Run Games</button>
+        </div>
+    </div>
+
+    <!-- Main game area -->
+    <div id="game-container" class="game-container hidden">
+        <div class="game-header">
+            <h1>Game <span id="game-number">1</span> of <span id="total-games">3</span></h1>
+        </div>
+
+        <div class="game-area">
+            <!-- GPT Panel (Left) -->
+            <div class="model-panel gpt-panel">
+                <div class="model-header">
+                    <img src="/static/img/openai.webp" alt="OpenAI" class="model-icon">
+                    <h2>GPT 5.2 High</h2>
+                </div>
+                <div id="gpt-thinking" class="thinking-bubble hidden">
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                    <span>Thinking...</span>
+                    <span id="gpt-timer" class="timer">0.0s</span>
+                </div>
+                <div class="model-mark">
+                    Playing as: <span id="gpt-mark" class="mark">X</span>
+                </div>
+                <div class="timing-info">
+                    <div class="time-stat">
+                        <span class="time-label">Last move:</span>
+                        <span id="gpt-last-time" class="time-value">0.0s</span>
+                    </div>
+                    <div class="time-stat">
+                        <span class="time-label">Total time:</span>
+                        <span id="gpt-total-time" class="time-value">0.0s</span>
+                    </div>
+                </div>
+                <div class="stats-box">
+                    <div class="stat">
+                        <span class="stat-value" id="gpt-wins">0</span>
+                        <span class="stat-label">Wins</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value" id="gpt-losses">0</span>
+                        <span class="stat-label">Losses</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value" id="gpt-draws">0</span>
+                        <span class="stat-label">Draws</span>
+                    </div>
+                </div>
+                <div class="last-move-box">
+                    <span class="last-move-label">Last Move:</span>
+                    <span id="gpt-last-move" class="last-move-value">—</span>
+                </div>
+                <div class="reasoning-box">
+                    <h3>💭 Reasoning</h3>
+                    <div id="gpt-reasoning" class="reasoning-text">Waiting for move...</div>
+                </div>
+            </div>
+
+            <!-- Board (Center) -->
+            <div class="board-container">
+                <div class="board-wrapper">
+                    <div class="board-labels-top">
+                        <span>A</span>
+                        <span>B</span>
+                        <span>C</span>
+                    </div>
+                    <div class="board-with-rows">
+                        <div class="board-labels-left">
+                            <span>1</span>
+                            <span>2</span>
+                            <span>3</span>
+                        </div>
+                        <div id="board" class="board">
+                            <div class="cell" data-coord="A1"></div>
+                            <div class="cell" data-coord="B1"></div>
+                            <div class="cell" data-coord="C1"></div>
+                            <div class="cell" data-coord="A2"></div>
+                            <div class="cell" data-coord="B2"></div>
+                            <div class="cell" data-coord="C2"></div>
+                            <div class="cell" data-coord="A3"></div>
+                            <div class="cell" data-coord="B3"></div>
+                            <div class="cell" data-coord="C3"></div>
+                        </div>
+                    </div>
+                </div>
+                <div id="game-status" class="game-status"></div>
+            </div>
+
+            <!-- Claude Panel (Right) -->
+            <div class="model-panel claude-panel">
+                <div class="model-header">
+                    <img src="/static/img/anthropic.jpeg" alt="Anthropic" class="model-icon">
+                    <h2>Claude Opus 4.5 Thinking</h2>
+                </div>
+                <div id="claude-thinking" class="thinking-bubble hidden">
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                    <span>Thinking...</span>
+                    <span id="claude-timer" class="timer">0.0s</span>
+                </div>
+                <div class="model-mark">
+                    Playing as: <span id="claude-mark" class="mark">O</span>
+                </div>
+                <div class="timing-info">
+                    <div class="time-stat">
+                        <span class="time-label">Last move:</span>
+                        <span id="claude-last-time" class="time-value">0.0s</span>
+                    </div>
+                    <div class="time-stat">
+                        <span class="time-label">Total time:</span>
+                        <span id="claude-total-time" class="time-value">0.0s</span>
+                    </div>
+                </div>
+                <div class="stats-box">
+                    <div class="stat">
+                        <span class="stat-value" id="claude-wins">0</span>
+                        <span class="stat-label">Wins</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value" id="claude-losses">0</span>
+                        <span class="stat-label">Losses</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value" id="claude-draws">0</span>
+                        <span class="stat-label">Draws</span>
+                    </div>
+                </div>
+                <div class="last-move-box">
+                    <span class="last-move-label">Last Move:</span>
+                    <span id="claude-last-move" class="last-move-value">—</span>
+                </div>
+                <div class="reasoning-box">
+                    <h3>💭 Reasoning</h3>
+                    <div id="claude-reasoning" class="reasoning-text">Waiting for move...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Table Section -->
+    <div id="stats-section" class="stats-section hidden">
+        <h2>📊 Game History</h2>
+        <table id="stats-table" class="stats-table">
+            <thead>
+                <tr>
+                    <th>Game #</th>
+                    <th>Time</th>
+                    <th>Winner</th>
+                    <th>GPT Time (s)</th>
+                    <th>Claude Time (s)</th>
+                </tr>
+            </thead>
+            <tbody id="stats-body">
+            </tbody>
+        </table>
+    </div>
+
+    <script src="/static/js/game.js"></script>
+</body>
+
+</html>
