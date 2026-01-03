@@ -1,6 +1,6 @@
 # Overview
 
-This is a simple Tic Tac Toe game where GPT-5.2-xhigh plays against Claude-4.5-opus.
+This is a simple Tic Tac Toe game where GPT 5.2 High (Reasoning) plays against Claude Opus 4.5 Thinking.
 
 **IMPORTANT:** You need to have an OpenAI and Anthropic API key to run this script.
 
