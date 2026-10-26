@@ -53,7 +53,7 @@ python app.py --test
 - **Pause** finishes a move already in progress, then stops. **Resume match** continues the same series.
 - Refreshing restores an unfinished board in a paused state. Completed series stay visible until a new match begins.
 - Failed starts stay on setup; failed moves stay on the match with a retry action. **New match** returns to model and round selection, where you can switch to Test.
-- The match view shows winning squares, explanations, timing, and history. [View the match screenshot](static/img/match.png). Explanations are capped at 600 characters to keep browser sessions compact.
+- The board is the focus, with compact player names and blue X / red O marks. A matching line crosses the winning three squares. **Explanations** can be toggled below the board; **Statistics & details** and **Match history** start collapsed and retain each player’s results, provider, effort, timing, and round history. [View the match screenshot](static/img/match.png). Explanations are capped at 600 characters to keep browser sessions compact.
 - Keyboard focus, screen-reader status announcements, and reduced motion are supported. The frontend needs no build or external fonts.
 
 The app binds to localhost and runs local processes under your account. The CLI adapters use an empty temporary working directory, disable command/web tools where supported, and time out after 180 seconds by default (`MODEL_TIMEOUT_SECONDS`). API credentials are removed from local child environments. Codex uses read-only permissions; Claude runs with tools disabled. Raw CLI diagnostics are not returned to the browser.
@@ -74,6 +74,6 @@ npx playwright install chromium --only-shell
 npm run test:ui
 ```
 
-Tests use captured model metadata and fake CLI initialization responses; no test invokes live discovery or real inference. The browser suite starts and stops its own servers on ports 5084/5085: one forced-Test server and one selector fixture with both real adapters blocked. It covers series completion, pause/resume, reload, provider switching, retry, responsive layouts, and reduced motion. Set `ARENA_PYTHON` if your Python environment is elsewhere. SDK tests never invoke the real Codex binary. Live provider inference is intentionally outside this suite.
+Tests use captured model metadata and fake CLI initialization responses; no test invokes live discovery or real inference. The browser suite starts and stops its own servers on ports 5084/5085: one forced-Test server and one selector fixture with both real adapters blocked. It covers series completion, pause/resume, reload, provider switching, retry, collapsible match details, all eight winning-line patterns in both mark colors, responsive layouts, and reduced motion. Set `ARENA_PYTHON` if your Python environment is elsewhere. SDK tests never invoke the real Codex binary. Live provider inference is intentionally outside this suite.
 
 Integration references: [Codex SDK](https://learn.chatgpt.com/docs/codex-sdk), [Codex authentication](https://learn.chatgpt.com/docs/auth), and [Claude CLI automation](https://code.claude.com/docs/en/headless).

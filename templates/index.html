@@ -12,17 +12,11 @@
 </head>
 <body>
     <a class="skip-link" href="#setup">Skip to setup</a>
-    <header class="site-header">
-        <nav class="nav" aria-label="Main navigation">
-            <a class="brand" href="/" aria-label="AI Arena home"><span class="brand-symbol" aria-hidden="true">✳</span> AI Arena<span class="brand-divider"></span><span class="brand-game">Tic-tac-toe</span></a>
-            <div class="nav-actions"><span id="test-badge" class="test-badge hidden">Test · no LLM calls</span><a id="history-link" class="nav-link hidden" href="#history">Match history <span aria-hidden="true">↗</span></a></div>
-        </nav>
-    </header>
     <main class="shell">
         <div id="error-message" class="error-banner hidden" role="alert"></div>
         <section id="setup" class="setup" aria-labelledby="setup-title">
             <form id="setup-form" class="setup-card">
-                <h1 id="setup-title" tabindex="-1">New match</h1>
+                <div class="setup-title-row"><h1 id="setup-title" tabindex="-1">New match</h1><span id="test-badge" class="test-badge hidden">Test · no LLM calls</span></div>
                 <div class="setup-connection"><label for="play-mode">Connection</label><select id="play-mode" aria-describedby="mode-description"><option value="local">Local CLIs</option><option value="api">API keys</option><option value="test">Test</option></select><p id="mode-description">Signed-in CLIs</p></div>
                 <div class="player-picks">
                     <fieldset class="player-pick gpt-pick"><legend>OpenAI / Codex</legend><label for="gpt-model">Model</label><select id="gpt-model" disabled><option value="default">Loading…</option></select><p id="gpt-model-note" class="model-note hidden"></p>
@@ -38,53 +32,62 @@
         <div id="match-view" class="match-view hidden">
             <section id="arena" class="arena" aria-label="AI match arena" tabindex="-1">
                 <div class="arena-toolbar">
-                    <div class="session-heading"><span id="session-indicator" class="status-dot"></span><h2 id="session-title">Ready</h2><span id="game-counter" class="game-counter">Round <b id="game-number">1</b> of <b id="total-games">3</b></span></div>
+                    <span id="game-counter" class="game-counter">Round <b id="game-number">1</b> of <b id="total-games">3</b></span>
                     <div class="match-controls"><button id="btn-pause" class="button secondary hidden" type="button">Pause</button><button id="btn-resume" class="button primary hidden" type="button">Resume match</button><button id="btn-new" class="button secondary" type="button">New match</button></div>
                 </div>
-            <div class="game-area">
-                {% for model, provider, name, mode, mark in [('gpt', 'OpenAI', 'Codex', 'Codex SDK · CLI default model', 'X'), ('claude', 'Anthropic', 'Claude', 'Claude CLI · CLI default model', 'O')] %}
-                <article class="model-panel {{ model }}-panel" id="{{ model }}-panel" aria-labelledby="{{ model }}-name">
-                    <div class="model-heading">
-                        <div class="model-icon {{ model }}-icon" aria-hidden="true">{% if model == 'gpt' %}<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.65"><path d="M16 4 26.4 10v12L16 28 5.6 22V10Z"/><path d="m16 4 0 12 10.4 6M5.6 10 16 16v12m10.4-18L16 16 5.6 22"/></svg>{% else %}<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 3v26M3 16h26M6.8 6.8l18.4 18.4m0-18.4L6.8 25.2M11 4l10 24M4 11l24 10M21 4 11 28M4 21l24-10"/></svg>{% endif %}</div>
-                        <span class="provider" id="{{ model }}-provider">{{ provider }}</span>
-                        <span id="{{ model }}-mark" class="mark unassigned" aria-label="Mark assigned when match starts">—</span>
-                    </div>
-                    <h2 id="{{ model }}-name">{{ name }}</h2>
-                    <p id="{{ model }}-mode" class="model-mode">{{ mode }}</p>
-                    <div class="model-state"><span id="{{ model }}-idle">Waiting to begin</span><span id="{{ model }}-thinking" class="thinking-bubble hidden"><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>Thinking<span id="{{ model }}-timer" class="timer">0.0s</span></span></div>
-                    <div class="stats-box" aria-label="{{ name }} results">
-                        <div><span id="{{ model }}-wins" class="stat-value">0</span><span class="stat-label">Wins</span></div>
-                        <div><span id="{{ model }}-draws" class="stat-value">0</span><span class="stat-label">Draws</span></div>
-                        <div><span id="{{ model }}-losses" class="stat-value">0</span><span class="stat-label">Losses</span></div>
-                    </div>
-                    <dl class="timing-info"><div><dt>Last move</dt><dd id="{{ model }}-last-move">—</dd></div><div><dt>Move time</dt><dd id="{{ model }}-last-time">—</dd></div><div><dt>Game time</dt><dd id="{{ model }}-total-time">—</dd></div></dl>
-                    <details class="reasoning-box" open><summary>Explanation <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"/></svg></summary><div id="{{ model }}-reasoning" class="reasoning-text">No moves yet.</div></details>
-                </article>
-                {% endfor %}
-
+                <div class="player-bar" aria-label="Players">
+                    {% for model, name in [('gpt', 'Codex'), ('claude', 'Claude')] %}
+                    <article class="model-panel {{ model }}-panel" id="{{ model }}-panel" aria-labelledby="{{ model }}-name">
+                        <span id="{{ model }}-mark" class="mark" aria-label="Mark assigned when match starts">—</span>
+                        <div class="player-copy"><h2 id="{{ model }}-name">{{ name }}</h2><div class="player-activity"><span id="{{ model }}-thinking" class="thinking-bubble hidden"><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>Thinking<span id="{{ model }}-timer" class="timer">0.0s</span></span></div></div>
+                    </article>
+                    {% endfor %}
+                </div>
                 <div class="board-container">
                     <div class="board-wrapper">
                         <div class="board-labels-top" aria-hidden="true"><span>A</span><span>B</span><span>C</span></div>
                         <div class="board-with-rows">
                             <div class="board-labels-left" aria-hidden="true"><span>1</span><span>2</span><span>3</span></div>
-                            <div id="board" class="board" role="group" aria-label="Tic-tac-toe board. Waiting for match.">
-                                {% for coord in ['A1','B1','C1','A2','B2','C2','A3','B3','C3'] %}<div class="cell" role="img" data-coord="{{ coord }}" aria-label="{{ coord }}: empty"><span class="cell-placeholder" aria-hidden="true"></span></div>{% endfor %}
+                            <div class="board-surface">
+                                <div id="board" class="board" role="group" aria-label="Tic-tac-toe board. Waiting for match.">
+                                    {% for coord in ['A1','B1','C1','A2','B2','C2','A3','B3','C3'] %}<div class="cell" role="img" data-coord="{{ coord }}" aria-label="{{ coord }}: empty"><span class="cell-placeholder" aria-hidden="true"></span></div>{% endfor %}
+                                </div>
+                                <svg id="winning-line" class="winning-line" viewBox="0 0 300 300" aria-hidden="true"><line pathLength="1" x1="0" y1="0" x2="0" y2="0"/></svg>
                             </div>
                         </div>
                     </div>
                     <div class="board-status"><div id="game-status" role="status" aria-live="polite">Starting match…</div><p id="status-detail"></p></div>
-                    <div class="board-legend"><span><i class="legend-x">×</i> Plays first</span><span><i class="legend-o">○</i> Plays second</span></div>
                 </div>
+            </section>
+            <div class="match-disclosures">
+                <details id="explanations" class="match-disclosure" open>
+                    <summary>Explanations</summary>
+                    <div class="explanations-grid">
+                        {% for model, name in [('gpt', 'Codex'), ('claude', 'Claude')] %}
+                        <article class="reasoning-box"><h3 id="{{ model }}-explanation-name">{{ name }}</h3><div id="{{ model }}-reasoning" class="reasoning-text">No moves yet.</div></article>
+                        {% endfor %}
+                    </div>
+                </details>
+                <details id="match-details" class="match-disclosure">
+                    <summary>Statistics &amp; details</summary>
+                    <div class="details-grid">
+                        {% for model, name in [('gpt', 'Codex'), ('claude', 'Claude')] %}
+                        <section class="player-details" aria-labelledby="{{ model }}-stats-name">
+                            <h3 id="{{ model }}-stats-name">{{ name }}</h3>
+                            <div class="player-metadata"><span id="{{ model }}-provider">{{ 'OpenAI' if model == 'gpt' else 'Anthropic' }}</span><span id="{{ model }}-mode" class="model-mode"></span></div>
+                            <div id="{{ model }}-stats" class="stats-box" aria-label="{{ name }} results"><div><span id="{{ model }}-wins" class="stat-value">0</span><span class="stat-label">Wins</span></div><div><span id="{{ model }}-draws" class="stat-value">0</span><span class="stat-label">Draws</span></div><div><span id="{{ model }}-losses" class="stat-value">0</span><span class="stat-label">Losses</span></div></div>
+                            <dl class="timing-info"><div><dt>State</dt><dd id="{{ model }}-idle">Waiting to begin</dd></div><div><dt>Last move</dt><dd id="{{ model }}-last-move">—</dd></div><div><dt>Move time</dt><dd id="{{ model }}-last-time">—</dd></div><div><dt>Game time</dt><dd id="{{ model }}-total-time">—</dd></div></dl>
+                        </section>
+                        {% endfor %}
+                    </div>
+                    <div class="series-details"><span class="session-heading"><span id="session-indicator" class="status-dot"></span><span id="session-title">Ready</span></span><span id="series-progress-text"></span><progress id="series-progress" value="0" max="3" aria-label="Series progress"></progress></div>
+                    <p class="match-rules">Marks change each round. X plays first, O plays second.</p>
+                </details>
+                <details id="history" class="match-disclosure history-section">
+                    <summary><span id="history-title">Match history</span><span id="history-count" class="count-badge">0 rounds</span></summary>
+                    <div class="history-card"><p id="history-empty" class="history-empty">No completed rounds.</p><div id="history-table-wrap" class="table-wrap hidden" tabindex="0" role="region" aria-label="Completed rounds"><table class="stats-table"><thead><tr><th scope="col">Round</th><th scope="col">Finished at</th><th scope="col">Result</th><th id="gpt-time-heading" scope="col">Codex time</th><th id="claude-time-heading" scope="col">Claude time</th></tr></thead><tbody id="stats-body"></tbody></table></div></div>
+                </details>
             </div>
-                <div class="arena-footer"><span>Marks change each round. X plays first.</span><span id="series-progress-text"></span><progress id="series-progress" value="0" max="3" aria-label="Series progress"></progress></div>
-            </section>
-            <section id="history" class="history-section" aria-labelledby="history-title">
-                <div class="section-heading"><h2 id="history-title">Match history</h2><span id="history-count" class="count-badge">0 rounds</span></div>
-                <div class="history-card">
-                    <p id="history-empty" class="history-empty">No completed rounds.</p>
-                    <div id="history-table-wrap" class="table-wrap hidden" tabindex="0" role="region" aria-label="Completed rounds"><table class="stats-table"><thead><tr><th scope="col">Round</th><th scope="col">Finished at</th><th scope="col">Result</th><th id="gpt-time-heading" scope="col">Codex time</th><th id="claude-time-heading" scope="col">Claude time</th></tr></thead><tbody id="stats-body"></tbody></table></div>
-                </div>
-            </section>
         </div>
     </main>
 </body>

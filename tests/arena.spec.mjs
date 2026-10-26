@@ -5,7 +5,7 @@ async function ready(page, url = '/') {
     await expect(page.locator('#setup')).toBeVisible();
     await expect(page.locator('#btn-run')).toBeEnabled();
     await expect(page.locator('#match-view')).toBeHidden();
-    await expect(page.locator('#history-link')).toBeHidden();
+    await expect(page.locator('header')).toHaveCount(0);
 }
 
 async function start(page, rounds = '1') {
@@ -216,4 +216,98 @@ test('setup and match fit mobile widths and respect reduced motion', async ({ pa
     }
     await expect(page.locator('.cell[role="img"]')).toHaveCount(9);
     expect(await page.locator('.piece').first().evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+});
+
+
+test('the board leads the match; all player details and history remain behind toggles', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.setViewportSize({width: 1440, height: 1000});
+    await ready(page);
+    await start(page);
+    await expect(page.locator('#session-title')).toHaveText('Series complete');
+    const board = await page.locator('#board').boundingBox();
+    const players = await page.locator('.player-bar').boundingBox();
+    expect(board.width).toBeGreaterThanOrEqual(580);
+    expect(players.height).toBeLessThan(90);
+    expect(board.height).toBeGreaterThan(players.height * 6);
+    await expect(page.locator('#gpt-name')).toBeVisible();
+    await expect(page.locator('#claude-name')).toBeVisible();
+    await expect(page.locator('#match-details')).not.toHaveAttribute('open');
+    await expect(page.locator('#history')).not.toHaveAttribute('open');
+    await expect(page.locator('#gpt-stats')).toBeHidden();
+    await expect(page.locator('#history-table-wrap')).toBeHidden();
+    await expect(page.locator('#gpt-reasoning')).toBeVisible();
+    await page.locator('#explanations > summary').click();
+    await expect(page.locator('#gpt-reasoning')).toBeHidden();
+    await page.locator('#explanations > summary').click();
+    await page.locator('#match-details > summary').click();
+    for (const model of ['gpt', 'claude']) {
+        for (const field of ['provider', 'mode', 'wins', 'draws', 'losses', 'idle', 'last-move', 'last-time', 'total-time']) {
+            await expect(page.locator(`#${model}-${field}`)).toBeVisible();
+        }
+        await expect(page.locator(`#${model}-last-move`)).not.toHaveText('—');
+    }
+    await expect(page.locator('#series-progress')).toBeVisible();
+    await expect(page.locator('.match-rules')).toContainText('X plays first, O plays second');
+    await page.locator('#history > summary').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#history-table-wrap')).toBeVisible();
+    await expect(page.locator('#stats-body tr')).toHaveCount(1);
+    await page.keyboard.press('Enter');
+    await page.locator('#match-details > summary').click();
+    if (process.env.ARENA_SCREENSHOTS) {
+        await page.locator('#arena').focus();
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.screenshot({path: 'static/img/match.png', fullPage: true});
+        await page.setViewportSize({width: 390, height: 1000});
+        await page.screenshot({path: '/tmp/tic-tac-toe-review/match-mobile.png', fullPage: true});
+    }
+    await page.click('#btn-new');
+    await page.route('**/api/next-move', route => route.fulfill({status: 502, json: {error: 'Fixture stopped before first move'}}));
+    await start(page);
+    await expect(page.locator('#session-title')).toHaveText('Match interrupted');
+    await expect(page.locator('#winning-line')).not.toHaveClass(/is-visible/);
+    await expect(page.locator('.cell.winner')).toHaveCount(0);
+    expect(errors).toEqual([]);
+});
+
+test('wins draw a line through all eight patterns in the winning mark color; draws have no line', async ({ page }) => {
+    await page.emulateMedia({reducedMotion: 'reduce'});
+    const response = await page.request.post('/api/start-games', {data: {mode: 'test', num_games: 1}});
+    const base = (await response.json()).game_state;
+    let saved = base;
+    await page.route('**/api/game-state', route => route.fulfill({json: saved}));
+    const cases = [
+        [['A1', 'B1', 'C1'], [26, 50, 274, 50]],
+        [['A2', 'B2', 'C2'], [26, 150, 274, 150]],
+        [['A3', 'B3', 'C3'], [26, 250, 274, 250]],
+        [['A1', 'A2', 'A3'], [50, 26, 50, 274]],
+        [['B1', 'B2', 'B3'], [150, 26, 150, 274]],
+        [['C1', 'C2', 'C3'], [250, 26, 250, 274]],
+        [['A1', 'B2', 'C3'], [26, 26, 274, 274]],
+        [['C1', 'B2', 'A3'], [274, 26, 26, 274]],
+    ];
+    for (const mark of ['X', 'O']) {
+        for (const [coords, endpoints] of cases) {
+            saved = {...base, board: Object.fromEntries(Object.keys(base.board).map(coord => [coord, coords.includes(coord) ? mark : '.'])), winner: mark, game_over: true, all_games_complete: true};
+            await page.goto('/');
+            const strike = page.locator('#winning-line');
+            await expect(strike).toHaveClass(/is-visible/);
+            await expect(strike).toHaveAttribute('data-winner', mark);
+            for (const [index, attribute] of ['x1', 'y1', 'x2', 'y2'].entries()) {
+                await expect(strike.locator('line')).toHaveAttribute(attribute, String(endpoints[index]));
+            }
+            await expect(page.locator('.cell.winner')).toHaveCount(3);
+            const color = mark === 'X' ? 'rgb(0, 113, 227)' : 'rgb(220, 53, 69)';
+            expect(await strike.locator('line').evaluate(el => getComputedStyle(el).stroke)).toBe(color);
+            expect(await page.locator('.cell.winner').first().evaluate(el => getComputedStyle(el).color)).toBe(color);
+            expect(await page.locator('.cell.winner').first().evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(255, 255, 255)');
+        }
+    }
+    saved = {...base, board: Object.fromEntries(Object.keys(base.board).map((coord, index) => [coord, ['X','O','X','X','O','O','O','X','X'][index]])), winner: 'draw', game_over: true, all_games_complete: true};
+    await page.goto('/');
+    await expect(page.locator('#session-title')).toHaveText('Series complete');
+    await expect(page.locator('#winning-line')).not.toHaveClass(/is-visible/);
+    await expect(page.locator('.cell.winner')).toHaveCount(0);
 });

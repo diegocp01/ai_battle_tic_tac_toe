@@ -50,7 +50,6 @@ function setMode(next) {
 function showMatch() {
     $('setup').classList.add('hidden');
     $('match-view').classList.remove('hidden');
-    $('history-link').classList.remove('hidden');
     document.querySelector('.skip-link').href = '#arena';
     document.querySelector('.skip-link').textContent = 'Skip to match';
 }
@@ -142,7 +141,6 @@ async function newMatch() {
         clearThinking();
         $('error-message').classList.add('hidden');
         $('match-view').classList.add('hidden');
-        $('history-link').classList.add('hidden');
         $('setup').classList.remove('hidden');
         document.querySelector('.skip-link').href = '#setup';
         document.querySelector('.skip-link').textContent = 'Skip to setup';
@@ -218,6 +216,21 @@ function renderBoard(current) {
         }
         cell.classList.toggle('winner', line.includes(cell.dataset.coord));
     }
+    const strike = $('winning-line');
+    if (line.length) {
+        const center = coord => ({x: (coord.charCodeAt(0) - 65) * 100 + 50, y: (Number(coord[1]) - 1) * 100 + 50});
+        const start = center(line[0]);
+        const end = center(line[2]);
+        const dx = (end.x - start.x) * 0.12;
+        const dy = (end.y - start.y) * 0.12;
+        const graphic = strike.querySelector('line');
+        for (const [attribute, value] of Object.entries({x1: start.x - dx, y1: start.y - dy, x2: end.x + dx, y2: end.y + dy})) graphic.setAttribute(attribute, value);
+        strike.dataset.winner = current.winner;
+        strike.classList.add('is-visible');
+    } else {
+        strike.classList.remove('is-visible');
+        delete strike.dataset.winner;
+    }
 }
 
 function renderProfiles(profiles) {
@@ -226,7 +239,9 @@ function renderProfiles(profiles) {
         $(model + '-name').textContent = names[model];
         $(model + '-mode').textContent = profiles[model].detail;
         $(model + '-provider').textContent = names[model].startsWith('Test ') ? 'Simulated' : model === 'gpt' ? 'OpenAI' : 'Anthropic';
-        $(model + '-panel').querySelector('.stats-box').setAttribute('aria-label', names[model] + ' results');
+        $(model + '-stats').setAttribute('aria-label', names[model] + ' results');
+        $(model + '-stats-name').textContent = names[model];
+        $(model + '-explanation-name').textContent = names[model];
         $(model + '-time-heading').textContent = names[model] + ' time';
     }
 }
@@ -251,6 +266,7 @@ function render(current) {
     renderBoard(current);
     for (const model of Object.keys(names)) {
         const mark = current[model + '_mark'];
+        $(model + '-panel').dataset.mark = mark;
         $(model + '-mark').textContent = mark;
         $(model + '-mark').className = 'mark ' + mark;
         $(model + '-mark').setAttribute('aria-label', 'Playing as ' + mark);
@@ -296,7 +312,7 @@ function finishSeries() {
     const gptWins = state.gpt_stats.wins;
     const claudeWins = state.claude_stats.wins;
     const result = gptWins === claudeWins ? 'Series tied.' : names[gptWins > claudeWins ? 'gpt' : 'claude'] + ' wins the series.';
-    setStatus(result, `${gptWins} ${names.gpt} wins · ${claudeWins} ${names.claude} wins · ${state.gpt_stats.draws} draws`);
+    setStatus(result, '');
 }
 
 async function runGameLoop() {
@@ -364,6 +380,8 @@ async function startGames(event) {
         });
         rememberSettings();
         renderedGame = null;
+        $('match-details').open = false;
+        $('history').open = false;
         render(data.game_state);
         showMatch();
         $('arena').focus({preventScroll: true});
