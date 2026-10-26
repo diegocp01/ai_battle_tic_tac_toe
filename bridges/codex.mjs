@@ -33,6 +33,7 @@ export async function runCodex(input, Client = Codex) {
         networkAccessEnabled: false,
         webSearchMode: 'disabled',
         ...(input.model ? { model: input.model } : {}),
+        ...(input.effort && input.effort !== 'default' ? { modelReasoningEffort: input.effort } : {}),
     });
     const result = await thread.run(input.prompt, { outputSchema: moveSchema });
     const move = JSON.parse(result.finalResponse);

@@ -5,6 +5,10 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import app
 import providers
+from catalog_fixtures import claude, codex
+
+providers.claude_model_catalog = claude
+providers.codex_model_catalog = codex
 
 
 def forbidden(*args, **kwargs):

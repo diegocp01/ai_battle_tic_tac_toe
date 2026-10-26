@@ -3,6 +3,11 @@
 const $ = (id) => document.getElementById(id);
 const names = { gpt: 'Codex', claude: 'Claude' };
 let configuration = null;
+const effortLevels = {gpt: ['default'], claude: ['default']};
+const effortLabels = {default: 'Default', none: 'None', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'X-high', max: 'Max', ultra: 'Ultra', persistent: 'Persistent'};
+const settingsKey = 'tic-tac-toe-settings';
+let preferences = {};
+try { preferences = JSON.parse(localStorage.getItem(settingsKey)) || {}; } catch {}
 const winningLines = [
     ['A1', 'B1', 'C1'], ['A2', 'B2', 'C2'], ['A3', 'B3', 'C3'],
     ['A1', 'A2', 'A3'], ['B1', 'B2', 'B3'], ['C1', 'C2', 'C3'],
@@ -23,18 +28,128 @@ function setStatus(title, detail) {
 function setMode(next) {
     mode = next;
     const active = ['running', 'pausing'].includes(mode);
-    const resumable = state && !state.all_games_complete;
-    const locked = ['loading', 'starting', 'running', 'pausing', 'paused'].includes(mode) || (mode === 'error' && resumable);
-    $('game-count').disabled = Boolean(locked);
-    $('play-mode').disabled = Boolean((locked && mode !== 'error') || configuration?.test_only);
-    $('btn-run').classList.toggle('hidden', active);
-    $('btn-run').disabled = ['loading', 'starting'].includes(mode);
-    $('btn-run').querySelector('span').textContent = ({ loading: 'Connecting…', starting: 'Starting…', paused: 'Resume match', error: resumable ? 'Retry match' : 'Try again', complete: 'New match' })[mode] || 'Start match';
+    const loading = ['loading', 'starting'].includes(mode);
+    $('game-count').disabled = active || loading;
+    for (const key of Object.keys(names)) {
+        $(key + '-model').disabled = active || loading || !$(key + '-model').value;
+        $(key + '-effort').disabled = active || loading || effortLevels[key].length <= 1;
+    }
+    $('play-mode').disabled = active || loading || Boolean(configuration?.test_only);
+    $('btn-run').disabled = loading || (configuration ? !['gpt', 'claude'].every(key => $(key + '-model').value) : mode !== 'error');
+    $('btn-run').querySelector('span').textContent = ({loading: 'Loading…', starting: 'Starting…', error: 'Try again'})[mode] || 'Start match';
     $('btn-pause').classList.toggle('hidden', !active);
     $('btn-pause').disabled = mode === 'pausing';
     $('btn-pause').textContent = mode === 'pausing' ? 'Pausing…' : 'Pause';
-    $('session-title').textContent = ({ loading: 'Connecting to arena', idle: 'Ready when you are', starting: 'Setting the board', running: 'Match in progress', pausing: 'Finishing this turn', paused: 'Match paused', error: 'Match interrupted', complete: 'Series complete' })[mode];
+    $('btn-resume').classList.toggle('hidden', !(state && ['paused', 'error'].includes(mode)));
+    $('btn-resume').textContent = mode === 'error' ? 'Retry move' : 'Resume match';
+    $('btn-new').disabled = active || loading;
+    $('session-title').textContent = ({loading: 'Loading', idle: 'Ready', starting: 'Starting', running: 'Match in progress', pausing: 'Finishing turn', paused: 'Match paused', error: 'Match interrupted', complete: 'Series complete'})[mode];
     $('session-indicator').className = 'status-dot ' + mode;
+}
+
+function showMatch() {
+    $('setup').classList.add('hidden');
+    $('match-view').classList.remove('hidden');
+    document.querySelector('.skip-link').href = '#arena';
+    document.querySelector('.skip-link').textContent = 'Skip to match';
+    loadMatchHistory();
+}
+
+function selectedModel(key) {
+    return configuration?.models[$('play-mode').value]?.[key]?.models.find(model => model.id === $(key + '-model').value);
+}
+
+function readEffort(key) {
+    return effortLevels[key][Number($(key + '-effort').value)] || 'default';
+}
+
+function updateEffortLabel(key) {
+    const value = readEffort(key);
+    const text = effortLabels[value] || value;
+    $(key + '-effort-value').textContent = effortLevels[key].length > 1 ? text
+        : $('play-mode').value === 'test' ? 'Not used' : !selectedModel(key) ? 'Unavailable'
+        : 'Not supported';
+    $(key + '-effort').setAttribute('aria-valuetext', $(key + '-effort-value').textContent);
+    for (const [index, tick] of [...$(key + '-effort-ticks').children].entries()) {
+        tick.classList.toggle('is-selected', index === Number($(key + '-effort').value));
+    }
+}
+
+function populateEffort(key, preferred) {
+    const model = selectedModel(key);
+    effortLevels[key] = model?.efforts || ['default'];
+    const value = effortLevels[key].includes(preferred) ? preferred : model?.default_effort || 'default';
+    const slider = $(key + '-effort');
+    slider.max = effortLevels[key].length - 1;
+    slider.value = Math.max(0, effortLevels[key].indexOf(value));
+    slider.disabled = effortLevels[key].length <= 1 || ['loading', 'starting', 'running', 'pausing'].includes(mode);
+    $(key + '-effort-max').textContent = effortLevels[key].length > 1 ? effortLabels[effortLevels[key].at(-1)] : '';
+    const ticks = $(key + '-effort-ticks');
+    ticks.replaceChildren();
+    if (effortLevels[key].length > 1) {
+        for (const effort of effortLevels[key]) {
+            const tick = document.createElement('span');
+            tick.title = effortLabels[effort] || effort;
+            ticks.appendChild(tick);
+        }
+    }
+    updateEffortLabel(key);
+}
+
+function populateModels(selectedMode, preferred = {}) {
+    const saved = selectedMode === 'local' ? {} : preferences.models?.[selectedMode] || {};
+    for (const key of Object.keys(names)) {
+        const info = configuration.models[selectedMode][key];
+        const select = $(key + '-model');
+        select.replaceChildren();
+        for (const model of info.models) {
+            const option = document.createElement('option');
+            option.value = model.id;
+            option.textContent = model.name;
+            select.appendChild(option);
+        }
+        if (!info.models.length) {
+            const empty = document.createElement('option');
+            empty.value = '';
+            empty.textContent = 'Unavailable';
+            select.appendChild(empty);
+        }
+        const previous = preferred[key + '_model'] || saved[key + '_model'] || info.default;
+        const requested = info.aliases?.[previous] || previous;
+        select.value = info.models.some(item => item.id === requested) ? requested : info.default;
+        $(key + '-model-note').textContent = info.message || '';
+        $(key + '-model-note').classList.toggle('hidden', !info.message);
+        populateEffort(key, preferred[key + '_effort'] || saved[key + '_effort']);
+    }
+}
+
+function rememberSettings() {
+    const selected = $('play-mode').value;
+    preferences.mode = selected;
+    preferences.num_games = Number($('game-count').value);
+    preferences.models = preferences.models || {};
+    preferences.models[selected] = {gpt_model: $('gpt-model').value, claude_model: $('claude-model').value, gpt_effort: readEffort('gpt'), claude_effort: readEffort('claude')};
+    try { localStorage.setItem(settingsKey, JSON.stringify(preferences)); } catch {}
+}
+
+async function newMatch() {
+    if (loopActive) return;
+    $('btn-new').disabled = true;
+    try {
+        await request('reset', {method: 'POST'});
+        state = null;
+        renderedGame = null;
+        clearThinking();
+        $('error-message').classList.add('hidden');
+        $('match-view').classList.add('hidden');
+        $('setup').classList.remove('hidden');
+        document.querySelector('.skip-link').href = '#setup';
+        document.querySelector('.skip-link').textContent = 'Skip to setup';
+        populateModels($('play-mode').value);
+        setMode('idle');
+        $('setup-title').focus({preventScroll: true});
+        window.scrollTo(0, 0);
+    } catch (error) { showError(error); }
 }
 
 async function request(path, options = {}) {
@@ -55,7 +170,7 @@ function showError(error) {
     $('error-message').textContent = error.message || 'Connection lost. Check that the app is running, then try again.';
     $('error-message').classList.remove('hidden');
     setMode('error');
-    setStatus('Let’s try that again.', state ? 'Your board is saved. Retry to continue the match.' : 'Check your connection and API setup, then try again.');
+    setStatus('Match interrupted.', 'Retry the move or start a new match.');
 }
 
 function clearThinking() {
@@ -78,7 +193,7 @@ function showThinking(model) {
     timer = setInterval(() => {
         $(model + '-timer').textContent = ((performance.now() - start) / 1000).toFixed(1) + 's';
     }, 100);
-    setStatus(names[model] + ' is thinking.', 'A little patience. A considered move.');
+    setStatus(names[model] + ' is thinking.', '');
 }
 
 function renderBoard(current) {
@@ -102,26 +217,41 @@ function renderBoard(current) {
         }
         cell.classList.toggle('winner', line.includes(cell.dataset.coord));
     }
+    const strike = $('winning-line');
+    if (line.length) {
+        const center = coord => ({x: (coord.charCodeAt(0) - 65) * 100 + 50, y: (Number(coord[1]) - 1) * 100 + 50});
+        const start = center(line[0]);
+        const end = center(line[2]);
+        const dx = (end.x - start.x) * 0.12;
+        const dy = (end.y - start.y) * 0.12;
+        const graphic = strike.querySelector('line');
+        for (const [attribute, value] of Object.entries({x1: start.x - dx, y1: start.y - dy, x2: end.x + dx, y2: end.y + dy})) graphic.setAttribute(attribute, value);
+        strike.dataset.winner = current.winner;
+        strike.classList.add('is-visible');
+    } else {
+        strike.classList.remove('is-visible');
+        delete strike.dataset.winner;
+    }
 }
 
 function renderProfiles(profiles) {
     for (const model of Object.keys(names)) {
         names[model] = profiles[model].name;
         $(model + '-name').textContent = names[model];
-        $(model + '-mode').textContent = profiles[model].detail;
-        $(model + '-provider').textContent = names[model].startsWith('Test ') ? 'Simulated' : model === 'gpt' ? 'OpenAI' : 'Anthropic';
-        $(model + '-panel').querySelector('.stats-box').setAttribute('aria-label', names[model] + ' results');
-        $(model + '-time-heading').textContent = names[model] + ' time';
+        const provider = names[model].startsWith('Test ') ? 'Simulated' : model === 'gpt' ? 'OpenAI' : 'Anthropic';
+        const connection = profiles[model].detail.split(' · ')[0];
+        $(model + '-provider').textContent = provider;
+        $(model + '-mode').textContent = connection === provider ? '' : connection;
+        $(model + '-stats').setAttribute('aria-label', names[model] + ' results');
     }
-    $('matchup-label').textContent = names.gpt + ' × ' + names.claude;
 }
 
 function renderMode(selected) {
     $('play-mode').value = selected;
     $('test-badge').classList.toggle('hidden', selected !== 'test');
     $('mode-description').textContent = configuration?.test_only
-        ? 'Test mode is enforced by the server. Real models cannot be called.'
-        : ({local: 'Uses your signed-in Codex and Claude CLIs. No API keys needed.', api: 'Uses OpenAI and Anthropic API keys from the server’s .env file.', test: 'Simulated players. No CLI, API, or real LLM calls.'})[selected];
+        ? 'Test mode · simulated players'
+        : ({local: 'Signed-in CLIs', api: 'API keys required', test: 'Simulated players'})[selected];
 }
 
 function render(current) {
@@ -136,42 +266,55 @@ function render(current) {
     renderBoard(current);
     for (const model of Object.keys(names)) {
         const mark = current[model + '_mark'];
+        $(model + '-panel').dataset.mark = mark;
         $(model + '-mark').textContent = mark;
         $(model + '-mark').className = 'mark ' + mark;
         $(model + '-mark').setAttribute('aria-label', 'Playing as ' + mark);
+        const effort = current[model + '_effort'] || 'default';
+        $(model + '-effort-detail').textContent = current.mode === 'test' ? 'Not used' : effortLabels[effort] || effort;
         for (const result of ['wins', 'losses', 'draws']) {
             $(model + '-' + result).textContent = current[model + '_stats'][result];
         }
         $(model + '-last-time').textContent = Number(current[model + '_last_time'] || 0).toFixed(1) + 's';
         $(model + '-total-time').textContent = Number(current[model + '_total_time'] || 0).toFixed(1) + 's';
-        $(model + '-reasoning').textContent = current[model + '_reasoning'] || 'The model’s explanation will appear after its next move.';
+        $(model + '-reasoning').textContent = current[model + '_reasoning'] || 'No moves yet.';
         $(model + '-idle').textContent = current.game_over ? 'Game finished' : current.current_model === model ? 'Up next' : 'Waiting for its turn';
         if (changedGame) $(model + '-last-move').textContent = '—';
     }
-    renderHistory(current.game_history);
     $('series-progress').classList.remove('hidden');
     $('series-progress').max = current.total_games;
     $('series-progress').value = current.game_history.length;
-    $('series-progress-text').textContent = current.game_history.length + ' of ' + current.total_games + ' games complete';
+    $('series-progress-text').textContent = current.game_history.length + ' of ' + current.total_games + ' rounds complete';
     if (current.game_over) {
-        setStatus(current.winner === 'draw' ? 'A well-matched draw.' : names[current.winner === current.gpt_mark ? 'gpt' : 'claude'] + ' takes the game.', current.all_games_complete ? 'Every move counted.' : 'The next game begins in a moment.');
+        setStatus(current.winner === 'draw' ? 'Draw.' : names[current.winner === current.gpt_mark ? 'gpt' : 'claude'] + ' wins.', current.all_games_complete ? '' : 'Next round starting…');
     }
 }
 
-function renderHistory(history) {
-    $('history-empty').classList.toggle('hidden', history.length > 0);
-    $('history-table-wrap').classList.toggle('hidden', history.length === 0);
-    $('history-count').textContent = history.length + (history.length === 1 ? ' game' : ' games');
+async function loadMatchHistory() {
+    try {
+        const archive = await request('match-history', {cache: 'no-store'});
+        renderHistory(archive.matches);
+    } catch {
+        renderHistory([]);
+        $('history-empty').textContent = 'Match history is unavailable.';
+    }
+}
+
+function renderHistory(matches) {
+    $('history-empty').textContent = 'No matches yet.';
+    $('history-empty').classList.toggle('hidden', matches.length > 0);
+    $('history-table-wrap').classList.toggle('hidden', matches.length === 0);
+    $('history-count').textContent = matches.length + (matches.length === 1 ? ' match' : ' matches');
     $('stats-body').replaceChildren();
-    for (const game of [...history].reverse()) {
+    for (const match of [...matches].reverse()) {
         const row = document.createElement('tr');
-        const values = [String(game.game).padStart(2, '0'), game.time, game.winner, Number(game.gpt_time || 0).toFixed(1) + 's', Number(game.claude_time || 0).toFixed(1) + 's'];
-        values.forEach((value, index) => {
+        const players = [match.gpt_name, match.claude_name].filter(Boolean).join(' vs ');
+        const values = [match.finished_at || '—', players || '—', match.rounds ?? '—', match.result || '—'];
+        for (const value of values) {
             const cell = document.createElement('td');
             cell.textContent = value;
-            if (index === 2) cell.className = game.winner_model === 'gpt' ? 'winner-gpt' : game.winner_model === 'claude' ? 'winner-claude' : 'winner-draw';
             row.appendChild(cell);
-        });
+        }
         $('stats-body').appendChild(row);
     }
 }
@@ -180,8 +323,8 @@ function finishSeries() {
     setMode('complete');
     const gptWins = state.gpt_stats.wins;
     const claudeWins = state.claude_stats.wins;
-    const result = gptWins === claudeWins ? 'Honors shared.' : names[gptWins > claudeWins ? 'gpt' : 'claude'] + ' wins the series.';
-    setStatus(result, `${gptWins} ${names.gpt} wins · ${claudeWins} ${names.claude} wins · ${state.gpt_stats.draws} draws`);
+    const result = gptWins === claudeWins ? 'Series tied.' : names[gptWins > claudeWins ? 'gpt' : 'claude'] + ' wins the series.';
+    setStatus(result, '');
 }
 
 async function runGameLoop() {
@@ -213,7 +356,7 @@ async function runGameLoop() {
                 finishSeries();
                 break;
             }
-            if (!state.game_over) setStatus(names[move.model] + ' played ' + move.move + '.', 'The board is taking shape.');
+            if (!state.game_over) setStatus(names[move.model] + ' played ' + move.move + '.', '');
             if (mode !== 'running') break;
             await sleep(state.mode === 'test' ? 250 : 1000);
         }
@@ -224,71 +367,88 @@ async function runGameLoop() {
         loopActive = false;
         if (mode === 'pausing') {
             setMode('paused');
-            setStatus('A moment to think.', 'Resume whenever you’re ready.');
+            setStatus('Paused.', '');
         }
     }
 }
 
-async function startGames() {
+async function startGames(event) {
+    event?.preventDefault();
     if (loopActive || ['loading', 'starting'].includes(mode)) return;
     $('error-message').classList.add('hidden');
-    if ((mode === 'paused' || mode === 'error') && state && !state.all_games_complete && $('play-mode').value === state.mode) {
-        await runGameLoop();
+    if (!configuration) {
+        await restoreSession();
         return;
     }
+    const settings = {
+        num_games: Number($('game-count').value), mode: $('play-mode').value,
+        gpt_model: $('gpt-model').value, claude_model: $('claude-model').value,
+        gpt_effort: readEffort('gpt'), claude_effort: readEffort('claude'),
+    };
     setMode('starting');
     try {
         const data = await request('start-games', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ num_games: Number($('game-count').value), mode: $('play-mode').value })
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(settings),
         });
+        rememberSettings();
         renderedGame = null;
+        for (const detail of document.querySelectorAll('.player-more')) detail.open = false;
+        $('history').open = false;
         render(data.game_state);
+        showMatch();
+        $('arena').focus({preventScroll: true});
+        window.scrollTo(0, 0);
         await runGameLoop();
-    } catch (error) {
-        showError(error);
-    }
+    } catch (error) { showError(error); }
 }
 
-$('btn-run').addEventListener('click', startGames);
+$('setup-form').addEventListener('submit', startGames);
+$('btn-new').addEventListener('click', newMatch);
+$('btn-resume').addEventListener('click', () => {
+    if (loopActive) return;
+    $('error-message').classList.add('hidden');
+    runGameLoop();
+});
 $('btn-pause').addEventListener('click', () => {
     if (mode !== 'running') return;
     setMode('pausing');
-    setStatus('Pausing after this turn.', 'Any move already in progress will finish first.');
+    setStatus('Pausing after this turn.', '');
 });
-$('game-count').addEventListener('change', () => {
-    if (!state) $('series-progress').max = Number($('game-count').value);
-});
-
 $('play-mode').addEventListener('change', () => {
     const selected = $('play-mode').value;
     renderMode(selected);
-    if (!state && configuration) renderProfiles(configuration.profiles[selected]);
-    if (mode === 'error' && state && !state.all_games_complete) {
-        $('btn-run').querySelector('span').textContent = selected === state.mode ? 'Retry match' : 'Start new match';
-        $('game-count').disabled = selected === state.mode;
-    }
+    populateModels(selected);
+    setMode(mode);
 });
+for (const key of Object.keys(names)) {
+    $(key + '-model').addEventListener('change', () => {
+        populateEffort(key);
+        setMode(mode);
+    });
+    $(key + '-effort').addEventListener('input', () => updateEffortLabel(key));
+}
 
 async function restoreSession() {
     setMode('loading');
     try {
         configuration = await request('config');
-        renderMode(configuration.default_mode);
-        renderProfiles(configuration.profiles[configuration.default_mode]);
+        const selected = configuration.test_only ? 'test' : configuration.models[preferences.mode] ? preferences.mode : configuration.default_mode;
+        renderMode(selected);
+        populateModels(selected);
+        const rounds = Number(preferences.num_games);
+        if (Number.isInteger(rounds) && rounds >= 1 && rounds <= 10) $('game-count').value = rounds;
         const saved = await request('game-state');
-        if (saved.game_history.length || Object.values(saved.board).some((value) => value !== '.')) {
+        if (saved.started || saved.game_history.length || Object.values(saved.board).some(value => value !== '.')) {
             $('game-count').value = saved.total_games;
+            populateModels(saved.mode, saved);
             render(saved);
+            showMatch();
             if (saved.all_games_complete) finishSeries();
             else {
                 setMode('paused');
-                setStatus('Welcome back.', 'Your match is saved. Resume whenever you’re ready.');
+                setStatus('Match paused.', '');
             }
         } else setMode('idle');
-    } catch (error) {
-        showError(error);
-    }
+    } catch (error) { showError(error); }
 }
 restoreSession();

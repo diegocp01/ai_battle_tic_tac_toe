@@ -1,0 +1,9 @@
+[
+  {"type":"control_response","response":{"subtype":"success","request_id":"arena-model-discovery","response":{"models":[
+    {"value":"default","resolvedModel":"claude-opus-5-5","displayName":"Default (recommended)","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},
+    {"value":"opus","resolvedModel":"claude-opus-5-5","displayName":"Opus","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},
+    {"value":"claude-fable-5-1[1m]","resolvedModel":"claude-fable-5-1","displayName":"Fable","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},
+    {"value":"sonnet","resolvedModel":"claude-sonnet-5-5","displayName":"Sonnet","supportsEffort":true,"supportedEffortLevels":["low","medium","high","xhigh","max"]},
+    {"value":"haiku","resolvedModel":"claude-haiku-4-5-20251001","displayName":"Haiku"}
+  ]}}}
+]

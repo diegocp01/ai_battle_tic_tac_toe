@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from app import app, check_winner, init_game_state
 import providers
+from catalog_fixtures import claude, codex
 
 
 class ArenaTests(unittest.TestCase):
@@ -18,6 +19,8 @@ class ArenaTests(unittest.TestCase):
         # Fail closed if a test accidentally reaches a real model adapter.
         self.local = patch('providers.call_local', side_effect=AssertionError('Real local player forbidden'))
         self.api = patch('providers.call_api', side_effect=AssertionError('Real API player forbidden'))
+        patch('providers.claude_model_catalog', side_effect=claude).start()
+        patch('providers.codex_model_catalog', side_effect=codex).start()
         self.local.start()
         self.api.start()
         self.addCleanup(patch.stopall)
@@ -93,6 +96,59 @@ class ArenaTests(unittest.TestCase):
         with patch('app.choose_move', return_value=('B2', 'Take the center')):
             self.assertEqual(self.client.post('/api/next-move').status_code, 200)
 
+    def test_selected_model_is_saved_and_forwarded_to_its_adapter(self):
+        response = self.client.post('/api/start-games', json={
+            'mode': 'local', 'num_games': 2, 'gpt_model': 'default', 'claude_model': 'sonnet',
+        })
+        self.assertEqual(response.status_code, 200)
+        with self.client.session_transaction() as saved:
+            state = saved['game_state']
+            state['current_turn'] = state['claude_mark']
+            saved['game_state'] = state
+        with patch('app.choose_move', return_value=('B2', 'Center')) as choose:
+            self.assertEqual(self.client.post('/api/next-move').status_code, 200)
+            self.assertEqual(choose.call_args.kwargs['selected_model'], 'claude-sonnet-5-5')
+        self.assertEqual(self.client.get('/api/game-state').json['claude_model'], 'claude-sonnet-5-5')
+        self.assertEqual(self.client.get('/api/game-state').json['players']['claude']['name'], 'Claude Sonnet 5.5')
+
+    def test_effort_selection_is_validated_saved_and_forwarded(self):
+        payload = {'mode': 'local', 'num_games': 2, 'gpt_model': 'fixture-codex',
+                   'claude_model': 'claude-opus-5-5', 'gpt_effort': 'ultra', 'claude_effort': 'max'}
+        response = self.client.post('/api/start-games', json=payload)
+        self.assertEqual(response.status_code, 200)
+        state = response.json['game_state']
+        self.assertEqual(state['gpt_effort'], 'ultra')
+        self.assertEqual(state['claude_effort'], 'max')
+        for key in ['gpt', 'claude']:
+            with self.client.session_transaction() as saved:
+                current = saved['game_state']
+                current['current_turn'] = current[key + '_mark']
+                saved['game_state'] = current
+            coord = 'A1' if key == 'gpt' else 'B1'
+            with patch('app.choose_move', return_value=(coord, 'Fixture')) as choose:
+                self.assertEqual(self.client.post('/api/next-move').status_code, 200)
+                self.assertEqual(choose.call_args.kwargs['effort'], payload[key + '_effort'])
+        self.assertEqual(self.client.get('/api/game-state').json['claude_effort'], 'max')
+        payload['claude_model'] = 'claude-haiku-4-5-20251001'
+        self.assertEqual(self.client.post('/api/start-games', json=payload).status_code, 400)
+        payload['claude_model'] = 'claude-opus-5-5'
+        payload['claude_effort'] = 'ultra'
+        self.assertEqual(self.client.post('/api/start-games', json=payload).status_code, 400)
+
+    def test_forced_test_configuration_never_discovers_real_models(self):
+        app.config['TEST_MODE'] = True
+        with patch('providers.claude_model_catalog', side_effect=AssertionError('No discovery in Test')):
+            self.assertEqual(self.client.get('/api/config').status_code, 200)
+            response = self.client.post('/api/start-games', json={'mode': 'local', 'claude_model': 'opus', 'claude_effort': 'max'})
+            self.assertEqual(response.json['game_state']['claude_effort'], 'default')
+
+    def test_invalid_model_is_rejected_and_reset_clears_the_match(self):
+        self.assertEqual(self.client.post('/api/start-games', json={'mode': 'local', 'claude_model': '--bad'}).status_code, 400)
+        self.start()
+        self.assertTrue(self.client.get('/api/game-state').json['started'])
+        self.assertEqual(self.client.post('/api/reset').status_code, 200)
+        self.assertFalse(self.client.get('/api/game-state').json['started'])
+
     def test_draw_and_winning_line_rules(self):
         board = dict(zip(providers.COORDS, ['X', 'O', 'X', 'X', 'O', 'O', 'O', 'X', 'X']))
         self.assertEqual(check_winner(board), 'draw')
@@ -102,6 +158,46 @@ class ArenaTests(unittest.TestCase):
     def test_cross_origin_post_is_rejected(self):
         response = self.client.post('/api/start-games', json={'mode': 'local'}, headers={'Origin': 'https://example.com'})
         self.assertEqual(response.status_code, 403)
+
+    def test_completed_series_never_writes_the_global_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory, 'match-history.json')
+            original = '{"matches": []}\n'
+            archive.write_text(original)
+            with patch('app.MATCH_HISTORY_PATH', archive):
+                self.assertEqual(self.client.get('/api/match-history').json, {'matches': []})
+                self.start(games=2)
+                for game in range(2):
+                    while not self.client.post('/api/next-move').json['game_state']['game_over']:
+                        pass
+                    if game == 0:
+                        self.client.post('/api/next-game')
+                self.assertEqual(self.client.get('/api/match-history').json, {'matches': []})
+                self.client.post('/api/reset')
+                self.start()
+                self.assertEqual(archive.read_text(), original)
+                self.assertEqual(self.client.post('/api/match-history', json={}).status_code, 405)
+
+    def test_archive_is_global_and_read_from_json_without_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory, 'match-history.json')
+            payload = {'matches': [{'gpt_name': 'Archived Codex', 'claude_name': 'Archived Claude', 'rounds': 3, 'result': 'Draw'}]}
+            archive.write_text(json.dumps(payload))
+            with patch('app.MATCH_HISTORY_PATH', archive):
+                self.assertEqual(self.client.get('/api/match-history').json, payload)
+                self.assertEqual(app.test_client().get('/api/match-history').json, payload)
+                archive.write_text('{"matches": []}')
+                self.assertEqual(self.client.get('/api/match-history').json, {'matches': []})
+
+    def test_missing_or_malformed_history_is_a_read_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory, 'match-history.json')
+            with patch('app.MATCH_HISTORY_PATH', archive):
+                self.assertEqual(self.client.get('/api/match-history').status_code, 503)
+                for invalid in ['not JSON', '[]', '{"matches": {}}', '{"matches": ["bad"]}']:
+                    archive.write_text(invalid)
+                    self.assertEqual(self.client.get('/api/match-history').status_code, 503)
+                    self.assertEqual(archive.read_text(), invalid)
 
 
 class AdapterTests(unittest.TestCase):
@@ -139,6 +235,46 @@ class AdapterTests(unittest.TestCase):
         with patch('providers.shutil.which', return_value='/fake/node'), patch.object(Path, 'is_dir', return_value=True), patch('providers.run_process', return_value={'move': 'B2', 'explanation': 'Center'}) as run:
             self.assertEqual(providers.call_local('gpt', 'board'), ('B2', 'Center'))
             self.assertTrue(run.call_args.args[0][1].endswith('bridges/codex.mjs'))
+
+    def test_selected_cli_models_override_environment_defaults(self):
+        result = {'structured_output': {'move': 'A1', 'explanation': 'Fixture'}}
+        with patch('providers.shutil.which', return_value='/fake/claude'), patch('providers.run_process', return_value=result) as run, patch.dict(os.environ, {'CLAUDE_MODEL': 'opus'}):
+            providers.call_local('claude', 'board', 'sonnet')
+            command = run.call_args.args[0]
+            self.assertEqual(command[command.index('--model') + 1], 'sonnet')
+            providers.call_local('claude', 'board', 'default')
+            self.assertNotIn('--model', run.call_args.args[0])
+        with patch('providers.shutil.which', return_value='/fake/node'), patch.object(Path, 'is_dir', return_value=True), patch('providers.run_process', return_value={'move': 'B2', 'explanation': 'Fixture'}) as run:
+            providers.call_local('gpt', 'board', 'chosen-model')
+            self.assertEqual(json.loads(run.call_args.args[1])['model'], 'chosen-model')
+
+    def test_effort_reaches_claude_cli_and_codex_bridge(self):
+        result = {'structured_output': {'move': 'A1', 'explanation': 'Fixture'}}
+        with patch('providers.shutil.which', return_value='/fake/claude'), patch('providers.run_process', return_value=result) as run:
+            providers.call_local('claude', 'board', 'claude-opus-5-5', 'xhigh')
+            command = run.call_args.args[0]
+            self.assertEqual(command[command.index('--model') + 1], 'claude-opus-5-5')
+            self.assertEqual(command[command.index('--effort') + 1], 'xhigh')
+            self.assertEqual(run.call_args.kwargs['environment']['CLAUDE_CODE_EFFORT_LEVEL'], 'xhigh')
+            providers.call_local('claude', 'board', 'claude-opus-5-5', 'default')
+            self.assertNotIn('--effort', run.call_args.args[0])
+        with patch('providers.shutil.which', return_value='/fake/node'), patch.object(Path, 'is_dir', return_value=True), patch('providers.run_process', return_value={'move': 'B2', 'explanation': 'Fixture'}) as run:
+            providers.call_local('gpt', 'board', 'fixture-codex', 'ultra')
+            self.assertEqual(json.loads(run.call_args.args[1])['effort'], 'ultra')
+
+    def test_catalog_uses_cached_metadata_without_starting_a_cli(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'CODEX_MODEL': ''}), patch('providers.subprocess.Popen', side_effect=AssertionError('No CLI discovery')):
+            cache = Path(directory, 'models_cache.json')
+            cache.write_text(json.dumps({'models': [
+                {'slug': 'fixture-model', 'display_name': 'Fixture model', 'visibility': 'list',
+                 'supported_reasoning_levels': [{'effort': 'low'}, {'effort': 'high'}], 'default_reasoning_level': 'low'},
+                {'slug': 'hidden-model', 'visibility': 'hide'},
+            ]}))
+            options = providers.codex_model_catalog(cache)['models']
+            self.assertIn('fixture-model', [item['id'] for item in options])
+            self.assertNotIn('hidden-model', [item['id'] for item in options])
+            self.assertEqual(options[0]['efforts'], ['default', 'low', 'high'])
+            self.assertEqual(options[0]['default_effort'], 'low')
 
     def test_missing_cli_actionable_message(self):
         with patch('providers.shutil.which', return_value=None):
