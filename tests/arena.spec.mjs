@@ -260,7 +260,7 @@ test('quiet side panels flank the board; the only bottom section is global histo
         }
     }
     await expect(page.locator('#series-progress')).toBeVisible();
-    await expect(page.locator('.match-rules')).toContainText('X plays first, O plays second');
+    await expect(page.locator('.match-rules')).toContainText('Codex always plays X and Claude always plays O');
     await page.locator('#history > summary').focus();
     await page.keyboard.press('Enter');
     await expect(page.locator('#history-empty')).toHaveText('No matches yet.');
@@ -340,10 +340,11 @@ test('wins draw a line through all eight patterns in the winning mark color; dra
                 await expect(strike.locator('line')).toHaveAttribute(attribute, String(endpoints[index]));
             }
             await expect(page.locator('.cell.winner')).toHaveCount(3);
-            const color = mark === 'X' ? 'rgb(0, 113, 227)' : 'rgb(220, 53, 69)';
+            const color = mark === 'X' ? 'rgb(10, 132, 255)' : 'rgb(255, 69, 58)';
             expect(await strike.locator('line').evaluate(el => getComputedStyle(el).stroke)).toBe(color);
             expect(await page.locator('.cell.winner').first().evaluate(el => getComputedStyle(el).color)).toBe(color);
-            expect(await page.locator('.cell.winner').first().evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(255, 255, 255)');
+            const plainCell = await page.locator('.cell:not(.winner)').first().evaluate(el => getComputedStyle(el).backgroundColor);
+            expect(await page.locator('.cell.winner').first().evaluate(el => getComputedStyle(el).backgroundColor)).toBe(plainCell);
         }
     }
     saved = {...base, board: Object.fromEntries(Object.keys(base.board).map((coord, index) => [coord, ['X','O','X','X','O','O','O','X','X'][index]])), winner: 'draw', game_over: true, all_games_complete: true};

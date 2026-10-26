@@ -1,5 +1,6 @@
 import json
 import os
+import plistlib
 from pathlib import Path
 import subprocess
 import sys
@@ -69,7 +70,7 @@ class ArenaTests(unittest.TestCase):
                 state = self.start(games=4).json['game_state']
             starters = []
             for round_number in range(1, 5):
-                self.assertEqual(state['current_turn'], 'X')
+                self.assertEqual((state['gpt_mark'], state['claude_mark']), ('X', 'O'))
                 starters.append(state['current_model'])
                 self.play_out_game()
                 if round_number < 4:
@@ -319,6 +320,25 @@ class AdapterTests(unittest.TestCase):
     def test_unknown_mode_never_falls_back(self):
         with self.assertRaises(providers.ProviderError):
             providers.choose_move('bad', 'gpt', 'board', {})
+
+    def test_wallpaper_video_streams_the_current_aerial_or_is_absent(self):
+        asset = '86E89C23-C39B-44C8-A985-E56EEA6456FE'
+        client = app.test_client()
+        with tempfile.TemporaryDirectory() as folder:
+            store = Path(folder)
+            with patch('app.WALLPAPER_STORE', store):
+                self.assertEqual(client.get('/wallpaper/video').status_code, 404)
+                (store / 'Store').mkdir()
+                (store / 'aerials' / 'videos').mkdir(parents=True)
+                configuration = plistlib.dumps({'assetID': asset}, fmt=plistlib.FMT_BINARY)
+                index = {'AllSpacesAndDisplays': {'Linked': {'Content': {'Choices': [{'Configuration': configuration}]}}}}
+                (store / 'Store' / 'Index.plist').write_bytes(plistlib.dumps(index, fmt=plistlib.FMT_BINARY))
+                self.assertEqual(client.get('/wallpaper/video').status_code, 404)
+                (store / 'aerials' / 'videos' / f'{asset}.mov').write_bytes(b'0123456789')
+                response = client.get('/wallpaper/video', headers={'Range': 'bytes=2-5'})
+                self.assertEqual(response.status_code, 206)
+                self.assertEqual(response.data, b'2345')
+                response.close()
 
 
 if __name__ == '__main__':

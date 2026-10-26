@@ -3,20 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#f5f5f7">
+    <meta name="theme-color" content="#0b1220">
     <meta name="description" content="Configure two AI players and watch a tic-tac-toe match.">
-    <title>AI Arena — Tic-tac-toe</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%231d1d1f'/%3E%3Cpath d='M20 20l24 24m0-24L20 44' stroke='white' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
+    <title>AI Tic-Tac-Toe</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%23161a3d'/%3E%3Cpath d='M25.3 13v38M38.7 13v38M13 25.3h38M13 38.7h38' stroke='%23ffffff' stroke-opacity='.3' stroke-width='2' stroke-linecap='round'/%3E%3Cpath d='M14.7 14.7l8 8m0-8-8 8M28 28l8 8m0-8-8 8M41.3 41.3l8 8m0-8-8 8' stroke='%234aa8ff' stroke-width='3.6' stroke-linecap='round'/%3E%3Cg fill='none' stroke='%23ff6159' stroke-width='3.6'%3E%3Ccircle cx='45.3' cy='18.7' r='4.3'/%3E%3Ccircle cx='18.7' cy='45.3' r='4.3'/%3E%3C/g%3E%3C/svg%3E">
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="/static/js/game.js" defer></script>
+    <script src="/static/js/liquid-glass.js" defer></script>
+    <script type="importmap">{"imports": {"three": "/static/vendor/three/three.module.js"}}</script>
+    <script type="module" src="/static/js/neon-pieces.js"></script>
 </head>
 <body>
+    <video id="wallpaper-video" class="wallpaper-video" data-src="/wallpaper/video" muted loop playsinline disablepictureinpicture preload="none" aria-hidden="true"></video>
     <a class="skip-link" href="#setup">Skip to setup</a>
     <main class="shell">
         <div id="error-message" class="error-banner hidden" role="alert"></div>
         <section id="setup" class="setup" aria-labelledby="setup-title">
             <form id="setup-form" class="setup-card">
-                <div class="setup-title-row"><h1 id="setup-title" tabindex="-1">New match</h1><span id="test-badge" class="test-badge hidden">Test · no LLM calls</span></div>
+                <div class="setup-title-row"><div class="setup-heading"><span class="app-icon" aria-hidden="true"><svg viewBox="0 0 64 64"><defs><filter id="icon-neon" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="1.4" result="glow"/><feMerge><feMergeNode in="glow"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><path class="icon-grid" d="M25.3 13v38M38.7 13v38M13 25.3h38M13 38.7h38"/><path class="icon-win" d="M14 14 50 50"/><path class="icon-x" filter="url(#icon-neon)" d="M14.7 14.7l8 8m0-8-8 8M28 28l8 8m0-8-8 8M41.3 41.3l8 8m0-8-8 8"/><g class="icon-o" filter="url(#icon-neon)"><circle cx="45.3" cy="18.7" r="4.3"/><circle cx="18.7" cy="45.3" r="4.3"/></g></svg></span><div><p class="setup-eyebrow">AI Tic-Tac-Toe</p><h1 id="setup-title" tabindex="-1">New match</h1></div></div><span id="test-badge" class="test-badge hidden">Test · no LLM calls</span></div>
                 <div class="setup-connection"><label for="play-mode">Connection</label><select id="play-mode" aria-describedby="mode-description"><option value="local">Local CLIs</option><option value="api">API keys</option><option value="test">Test</option></select><p id="mode-description">Signed-in CLIs</p></div>
                 <div class="player-picks">
                     <fieldset class="player-pick gpt-pick"><legend>OpenAI / Codex</legend><label for="gpt-model">Model</label><select id="gpt-model" disabled><option value="default">Loading…</option></select><p id="gpt-model-note" class="model-note hidden"></p>
@@ -31,16 +35,20 @@
         </section>
         <div id="match-view" class="match-view hidden">
             <section id="arena" class="arena" aria-label="AI match arena" tabindex="-1">
-                <div class="arena-toolbar">
-                    <span id="game-counter" class="game-counter">Round <b id="game-number">1</b> of <b id="total-games">3</b></span>
-                    <div class="match-controls"><button id="btn-pause" class="button secondary hidden" type="button">Pause</button><button id="btn-resume" class="button primary hidden" type="button">Resume match</button><button id="btn-new" class="button secondary" type="button">New match</button></div>
+                {% macro score_side(model, name) %}
+                <div class="score-side {{ model }}-side">
+                    <span class="avatar"><img class="mascot" src="/static/img/mascot-{{ 'codex' if model == 'gpt' else 'claude' }}.png" alt=""><span id="{{ model }}-mark" class="mark" aria-label="Mark assigned when match starts">—</span></span>
+                    <div class="player-copy"><h2 id="{{ model }}-name">{{ name }}</h2><div class="player-activity"><span id="{{ model }}-idle">Waiting to begin</span><span id="{{ model }}-thinking" class="thinking-bubble hidden"><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>Thinking<span id="{{ model }}-timer" class="timer">0.0s</span></span></div></div>
+                    <b id="{{ model }}-score" class="score-value" aria-label="{{ name }} rounds won">0</b>
+                </div>
+                {% endmacro %}
+                <div class="arena-toolbar scoreboard" role="group" aria-label="Players and score by round">
+                    {{ score_side('gpt', 'Codex') }}
+                    <div class="score-center"><span id="game-counter" class="game-counter">Round <b id="game-number">1</b> of <b id="total-games">3</b></span><span id="round-pips" class="round-pips"></span></div>
+                    {{ score_side('claude', 'Claude') }}
                 </div>
                 {% macro player_panel(model, name) %}
                 <aside class="model-panel {{ model }}-panel" id="{{ model }}-panel" aria-labelledby="{{ model }}-name">
-                    <div class="model-identity">
-                        <span id="{{ model }}-mark" class="mark" aria-label="Mark assigned when match starts">—</span>
-                        <div class="player-copy"><h2 id="{{ model }}-name">{{ name }}</h2><div class="player-activity"><span id="{{ model }}-idle">Waiting to begin</span><span id="{{ model }}-thinking" class="thinking-bubble hidden"><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>Thinking<span id="{{ model }}-timer" class="timer">0.0s</span></span></div></div>
-                    </div>
                     <div class="model-info">
                         <div class="player-metadata"><span id="{{ model }}-provider">{{ 'OpenAI' if model == 'gpt' else 'Anthropic' }}</span><span id="{{ model }}-mode"></span></div>
                         <dl class="model-settings"><div><dt>Reasoning effort</dt><dd id="{{ model }}-effort-detail">Default</dd></div><div><dt>Last move</dt><dd id="{{ model }}-last-move">—</dd></div></dl>
@@ -48,7 +56,7 @@
                         <details class="player-more"><summary>Statistics &amp; timing</summary>
                             <div id="{{ model }}-stats" class="stats-box" aria-label="{{ name }} results"><div><span id="{{ model }}-wins" class="stat-value">0</span><span class="stat-label">Wins</span></div><div><span id="{{ model }}-draws" class="stat-value">0</span><span class="stat-label">Draws</span></div><div><span id="{{ model }}-losses" class="stat-value">0</span><span class="stat-label">Losses</span></div></div>
                             <dl class="timing-info"><div><dt>Move time</dt><dd id="{{ model }}-last-time">—</dd></div><div><dt>Game time</dt><dd id="{{ model }}-total-time">—</dd></div></dl>
-                            {% if model == 'gpt' %}<div class="series-details"><span class="session-heading"><span id="session-indicator" class="status-dot"></span><span id="session-title">Ready</span></span><span id="series-progress-text"></span><progress id="series-progress" value="0" max="3" aria-label="Series progress"></progress></div><p class="match-rules">First player is random in round 1, then alternates each round. X plays first, O plays second.</p>{% endif %}
+                            {% if model == 'gpt' %}<div class="series-details"><span class="session-heading"><span id="session-indicator" class="status-dot"></span><span id="session-title">Ready</span></span><span id="series-progress-text"></span><progress id="series-progress" value="0" max="3" aria-label="Series progress"></progress></div><p class="match-rules">Codex always plays X and Claude always plays O. The first player is random in round 1, then alternates each round.</p>{% endif %}
                         </details>
                     </div>
                 </aside>
@@ -69,6 +77,7 @@
                             </div>
                         </div>
                         <div class="board-status"><div id="game-status" role="status" aria-live="polite">Starting match…</div><p id="status-detail"></p></div>
+                        <div class="match-controls"><button id="btn-pause" class="button secondary hidden" type="button">Pause</button><button id="btn-resume" class="button primary hidden" type="button">Resume match</button><button id="btn-new" class="button secondary" type="button">New match</button></div>
                     </div>
                     {{ player_panel('claude', 'Claude') }}
                 </div>

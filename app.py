@@ -1,10 +1,12 @@
-from flask import Flask, render_template, jsonify, request, session
+from flask import Flask, render_template, jsonify, request, send_file, session
 import random
 from datetime import datetime
 import time
 import os
 import argparse
 import json
+import plistlib
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 from dotenv import load_dotenv
@@ -18,6 +20,7 @@ app.config['TEST_MODE'] = os.getenv('ARENA_TEST_MODE', '').lower() in ('1', 'tru
 app.config['TRUSTED_HOSTS'] = ['localhost', '127.0.0.1', '[::1]']
 app.config['MAX_CONTENT_LENGTH'] = 16384
 MATCH_HISTORY_PATH = Path(__file__).resolve().parent / 'data' / 'match-history.json'
+WALLPAPER_STORE = Path.home() / 'Library' / 'Application Support' / 'com.apple.wallpaper'
 
 
 @app.before_request
@@ -53,20 +56,46 @@ def match_history():
     return response
 
 
+def current_aerial_video():
+    """The aerial video macOS is using as this Mac's wallpaper, or None when the wallpaper is not an aerial."""
+    try:
+        index = plistlib.loads((WALLPAPER_STORE / 'Store' / 'Index.plist').read_bytes())
+        displays = index['AllSpacesAndDisplays']
+        content = (displays.get('Linked') or displays.get('Desktop'))['Content']
+        asset = plistlib.loads(content['Choices'][0]['Configuration'])['assetID']
+    except (OSError, KeyError, IndexError, TypeError, ValueError, plistlib.InvalidFileException):
+        return None
+    if not isinstance(asset, str) or not re.fullmatch(r'[0-9A-F-]{36}', asset):
+        return None
+    video = WALLPAPER_STORE / 'aerials' / 'videos' / f'{asset}.mov'
+    return video if video.is_file() else None
+
+
+@app.route('/wallpaper/video')
+def wallpaper_video():
+    """Stream the Mac's own wallpaper video in place; nothing is copied into the project."""
+    video = current_aerial_video()
+    if video is None:
+        return '', 404
+    return send_file(video, mimetype='video/mp4', conditional=True, max_age=86400)
+
+
 # Board coordinate mapping
 COORDS = ['A1', 'B1', 'C1', 'A2', 'B2', 'C2', 'A3', 'B3', 'C3']
 
 def init_game_state(mode=None):
     """Initialize a fresh game state."""
-    # A new match randomly picks who plays X, and X always goes first
-    gpt_is_x = random.choice([True, False])
+    # Codex always plays X and Claude always plays O; a new match randomly picks who moves first
+    gpt_starts = random.choice([True, False])
+    first = 'X' if gpt_starts else 'O'
     return {
         'board': {coord: '.' for coord in COORDS},
         'mode': effective_mode(mode),
         'started': False,
-        'gpt_mark': 'X' if gpt_is_x else 'O',
-        'claude_mark': 'O' if gpt_is_x else 'X',
-        'current_turn': 'X',  # X always goes first
+        'gpt_mark': 'X',
+        'claude_mark': 'O',
+        'current_turn': first,
+        'round_starter': first,
         'game_over': False,
         'winner': None,
         'gpt_reasoning': '',
@@ -279,10 +308,10 @@ def next_game():
     total_games = state['total_games']
     current_game = state['current_game'] + 1
     
-    # Swap marks so whoever went second last round goes first this round
+    # Whoever went second last round goes first this round
     state['board'] = {coord: '.' for coord in COORDS}
-    state['gpt_mark'], state['claude_mark'] = state['claude_mark'], state['gpt_mark']
-    state['current_turn'] = 'X'
+    state['round_starter'] = 'O' if state.get('round_starter', 'X') == 'X' else 'X'
+    state['current_turn'] = state['round_starter']
     state['game_over'] = False
     state['winner'] = None
     state['gpt_reasoning'] = ''
