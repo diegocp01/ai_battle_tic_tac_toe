@@ -33,7 +33,7 @@ def configuration():
     return jsonify({
         'default_mode': effective_mode(), 'test_only': app.config['TEST_MODE'],
         'profiles': {mode: player_profiles(mode) for mode in MODES},
-        'models': model_catalog(),
+        'models': model_catalog(discover=not app.config['TEST_MODE']),
     })
 
 # Board coordinate mapping
@@ -185,7 +185,7 @@ def next_move():
     prompt = board_to_string(state['board'], current_turn)
     start_time = time.monotonic()
     try:
-        move, reasoning = choose_move(mode, model, prompt, state['board'], selected_model=state.get(model + '_model'))
+        move, reasoning = choose_move(mode, model, prompt, state['board'], selected_model=state.get(model + '_model'), effort=state.get(model + '_effort'))
     except ProviderError as error:
         return jsonify({'error': str(error)}), 502
     elapsed = time.monotonic() - start_time
@@ -306,6 +306,8 @@ def get_client_state(state):
         'started': state.get('started', False),
         'gpt_model': state.get('gpt_model', 'default'),
         'claude_model': state.get('claude_model', 'default'),
+        'gpt_effort': state.get('gpt_effort', 'default'),
+        'claude_effort': state.get('claude_effort', 'default'),
         'gpt_mark': state['gpt_mark'],
         'claude_mark': state['claude_mark'],
         'current_turn': state['current_turn'],

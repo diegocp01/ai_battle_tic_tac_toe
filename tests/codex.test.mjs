@@ -17,7 +17,7 @@ test('SDK options use CLI sign-in, a read-only sandbox, and structured output', 
             }};
         }
     }
-    const result = await runCodex({prompt: 'Board', model: 'configured-model'}, FakeCodex);
+    const result = await runCodex({prompt: 'Board', model: 'configured-model', effort: 'xhigh'}, FakeCodex);
     assert.equal(result.move, 'B2');
     assert.equal(clientOptions.config.forced_login_method, 'chatgpt');
     assert.equal(clientOptions.env.OPENAI_API_KEY, undefined);
@@ -25,6 +25,7 @@ test('SDK options use CLI sign-in, a read-only sandbox, and structured output', 
     assert.equal(threadOptions.sandboxMode, 'read-only');
     assert.equal(threadOptions.approvalPolicy, 'never');
     assert.equal(threadOptions.model, 'configured-model');
+    assert.equal(threadOptions.modelReasoningEffort, 'xhigh');
     assert.deepEqual(runOptions.outputSchema, moveSchema);
 });
 
@@ -56,9 +57,10 @@ for (const event of [
 `, {mode: 0o755});
         process.env.CODEX_CLI_PATH = executable;
         process.env.CODEX_API_KEY = 'fake-must-not-be-forwarded';
-        assert.equal((await runCodex({prompt: 'Fixture board'})).move, 'A1');
+        assert.equal((await runCodex({prompt: 'Fixture board', effort: 'high'})).move, 'A1');
         const args = JSON.parse(await readFile(argsFile, 'utf8'));
         assert(args.includes('--output-schema'));
+        assert(args.includes('model_reasoning_effort="high"'));
         assert(args.includes('read-only'));
         assert(args.includes('forced_login_method="chatgpt"'));
         assert(!args.includes('--model'), 'CLI default is preserved when no model is specified');

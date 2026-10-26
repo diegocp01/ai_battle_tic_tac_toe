@@ -22,7 +22,11 @@ Open [localhost:5001](http://localhost:5001). Choose the connection, Codex model
 - **Claude:** uses your installed `claude` command and existing subscription sign-in. Run `claude` once to sign in if needed.
 - Local means the CLI runs on your computer; model inference still uses the providers’ services and your plan’s usage allowance. No API keys are required by this mode.
 
-The model selectors offer **CLI default**, cached Codex models, and Claude’s `opus`, `sonnet`, and `haiku` aliases. Codex options come from the local CLI metadata cache, without starting a model call; the cache is not an entitlement check. If no cache exists, CLI default still works. Optional `CODEX_MODEL` and `CLAUDE_MODEL` values in `.env` are added to the selectors as defaults. Selected models are validated, saved with the series, and passed to the adapters for every move. Setup choices are remembered in this browser. Copy `.env.example` for other optional settings. `CODEX_CLI_PATH` selects a different installed Codex binary; otherwise the SDK uses its pinned runtime. No existing CLI configuration or credentials are changed.
+The Codex selector reads exact model IDs and supported reasoning levels from the local CLI metadata cache. **CLI default** stays available when no cache exists. Claude’s selector uses the installed `claude` command’s initialization response, resolves aliases to full model IDs, and shows the exact version (for example, the version reported by your own CLI rather than a moving “Opus” alias). Initialization sends no prompt and performs no model inference. Model metadata is cached in memory for up to five minutes and refreshed after CLI updates. A discovery failure is shown instead of substituting guessed versions.
+
+Each player has a **Reasoning effort** slider with that model’s supported levels. The chosen effort is saved with the match and sent to Codex as `modelReasoningEffort`, Claude as `--effort`, or the optional APIs as their effort parameter. **Default** keeps the adapter’s existing effort setting. The slider is disabled for models that don’t support effort, for Test players, and for a Codex CLI-default choice whose capabilities aren’t known. Select a specific cached Codex model to enable its slider.
+
+Optional `CODEX_MODEL` and `CLAUDE_MODEL` values in `.env` select catalog defaults; Claude aliases are resolved to exact CLI-reported IDs. Setup choices are remembered in this browser. Copy `.env.example` for other settings. `CODEX_CLI_PATH` selects a different installed Codex binary; otherwise the SDK uses its pinned runtime. No existing CLI configuration or credentials are changed.
 
 ## Choose a mode
 
@@ -68,6 +72,6 @@ npx playwright install chromium --only-shell
 npm run test:ui
 ```
 
-The browser suite starts and stops its own servers on ports 5084/5085: one forced-Test server and one selector fixture with both real adapters blocked. It covers series completion, pause/resume, reload, provider switching, retry, responsive layouts, and reduced motion. Set `ARENA_PYTHON` if your Python environment is elsewhere. SDK tests never invoke the real Codex binary. Live provider inference is intentionally outside this suite.
+Tests use captured model metadata and fake CLI initialization responses; no test invokes live discovery or real inference. The browser suite starts and stops its own servers on ports 5084/5085: one forced-Test server and one selector fixture with both real adapters blocked. It covers series completion, pause/resume, reload, provider switching, retry, responsive layouts, and reduced motion. Set `ARENA_PYTHON` if your Python environment is elsewhere. SDK tests never invoke the real Codex binary. Live provider inference is intentionally outside this suite.
 
 Integration references: [Codex SDK](https://learn.chatgpt.com/docs/codex-sdk), [Codex authentication](https://learn.chatgpt.com/docs/auth), and [Claude CLI automation](https://code.claude.com/docs/en/headless).

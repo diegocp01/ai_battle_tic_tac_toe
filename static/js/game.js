@@ -3,6 +3,8 @@
 const $ = (id) => document.getElementById(id);
 const names = { gpt: 'Codex', claude: 'Claude' };
 let configuration = null;
+const effortLevels = {gpt: ['default'], claude: ['default']};
+const effortLabels = {default: 'Default', none: 'None', minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'X-high', max: 'Max', ultra: 'Ultra', persistent: 'Persistent'};
 const settingsKey = 'tic-tac-toe-settings';
 let preferences = {};
 try { preferences = JSON.parse(localStorage.getItem(settingsKey)) || {}; } catch {}
@@ -27,9 +29,13 @@ function setMode(next) {
     mode = next;
     const active = ['running', 'pausing'].includes(mode);
     const loading = ['loading', 'starting'].includes(mode);
-    for (const id of ['game-count', 'gpt-model', 'claude-model']) $(id).disabled = active || loading;
+    $('game-count').disabled = active || loading;
+    for (const key of Object.keys(names)) {
+        $(key + '-model').disabled = active || loading || !$(key + '-model').value;
+        $(key + '-effort').disabled = active || loading || effortLevels[key].length <= 1;
+    }
     $('play-mode').disabled = active || loading || Boolean(configuration?.test_only);
-    $('btn-run').disabled = loading;
+    $('btn-run').disabled = loading || (configuration ? !['gpt', 'claude'].every(key => $(key + '-model').value) : mode !== 'error');
     $('btn-run').querySelector('span').textContent = ({loading: 'Loading…', starting: 'Starting…', error: 'Try again'})[mode] || 'Start match';
     $('btn-pause').classList.toggle('hidden', !active);
     $('btn-pause').disabled = mode === 'pausing';
@@ -49,6 +55,35 @@ function showMatch() {
     document.querySelector('.skip-link').textContent = 'Skip to match';
 }
 
+function selectedModel(key) {
+    return configuration?.models[$('play-mode').value]?.[key]?.models.find(model => model.id === $(key + '-model').value);
+}
+
+function readEffort(key) {
+    return effortLevels[key][Number($(key + '-effort').value)] || 'default';
+}
+
+function updateEffortLabel(key) {
+    const value = readEffort(key);
+    const text = effortLabels[value] || value;
+    $(key + '-effort-value').textContent = effortLevels[key].length > 1 ? text
+        : $('play-mode').value === 'test' ? 'Not used' : !selectedModel(key) ? 'Unavailable'
+        : $(key + '-model').value === 'default' ? 'CLI default' : 'Not supported';
+    $(key + '-effort').setAttribute('aria-valuetext', $(key + '-effort-value').textContent);
+}
+
+function populateEffort(key, preferred) {
+    const model = selectedModel(key);
+    effortLevels[key] = model?.efforts || ['default'];
+    const value = effortLevels[key].includes(preferred) ? preferred : model?.default_effort || 'default';
+    const slider = $(key + '-effort');
+    slider.max = effortLevels[key].length - 1;
+    slider.value = Math.max(0, effortLevels[key].indexOf(value));
+    slider.disabled = effortLevels[key].length <= 1 || ['loading', 'starting', 'running', 'pausing'].includes(mode);
+    $(key + '-effort-max').textContent = effortLevels[key].length > 1 ? effortLabels[effortLevels[key].at(-1)] : '';
+    updateEffortLabel(key);
+}
+
 function populateModels(selectedMode, preferred = {}) {
     const saved = preferences.models?.[selectedMode] || {};
     for (const key of Object.keys(names)) {
@@ -61,8 +96,18 @@ function populateModels(selectedMode, preferred = {}) {
             option.textContent = model.name;
             select.appendChild(option);
         }
-        const requested = preferred[key + '_model'] || saved[key + '_model'] || info.default;
+        if (!info.models.length) {
+            const empty = document.createElement('option');
+            empty.value = '';
+            empty.textContent = 'Unavailable';
+            select.appendChild(empty);
+        }
+        const previous = preferred[key + '_model'] || saved[key + '_model'] || info.default;
+        const requested = info.aliases?.[previous] || previous;
         select.value = info.models.some(item => item.id === requested) ? requested : info.default;
+        $(key + '-model-note').textContent = info.message || '';
+        $(key + '-model-note').classList.toggle('hidden', !info.message);
+        populateEffort(key, preferred[key + '_effort'] || saved[key + '_effort']);
     }
 }
 
@@ -71,7 +116,7 @@ function rememberSettings() {
     preferences.mode = selected;
     preferences.num_games = Number($('game-count').value);
     preferences.models = preferences.models || {};
-    preferences.models[selected] = {gpt_model: $('gpt-model').value, claude_model: $('claude-model').value};
+    preferences.models[selected] = {gpt_model: $('gpt-model').value, claude_model: $('claude-model').value, gpt_effort: readEffort('gpt'), claude_effort: readEffort('claude')};
     try { localStorage.setItem(settingsKey, JSON.stringify(preferences)); } catch {}
 }
 
@@ -297,6 +342,7 @@ async function startGames(event) {
     const settings = {
         num_games: Number($('game-count').value), mode: $('play-mode').value,
         gpt_model: $('gpt-model').value, claude_model: $('claude-model').value,
+        gpt_effort: readEffort('gpt'), claude_effort: readEffort('claude'),
     };
     setMode('starting');
     try {
@@ -329,7 +375,15 @@ $('play-mode').addEventListener('change', () => {
     const selected = $('play-mode').value;
     renderMode(selected);
     populateModels(selected);
+    setMode(mode);
 });
+for (const key of Object.keys(names)) {
+    $(key + '-model').addEventListener('change', () => {
+        populateEffort(key);
+        setMode(mode);
+    });
+    $(key + '-effort').addEventListener('input', () => updateEffortLabel(key));
+}
 
 async function restoreSession() {
     setMode('loading');

@@ -28,7 +28,7 @@ MOVE_SCHEMA = {
     "additionalProperties": False
 }
 
-def call_claude(user_prompt: str) -> tuple[str, str | None]:
+def call_claude(user_prompt: str, effort: str = "high") -> tuple[str, str | None]:
     """
     Returns:
       move: str (e.g., "B2")
@@ -54,7 +54,8 @@ def call_claude(user_prompt: str) -> tuple[str, str | None]:
         ],
 
         output_config={
-            "format": {"type": "json_schema", "schema": MOVE_SCHEMA}
+            "format": {"type": "json_schema", "schema": MOVE_SCHEMA},
+            "effort": effort
         }
     )
 

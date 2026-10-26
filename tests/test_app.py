@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from app import app, check_winner, init_game_state
 import providers
+from catalog_fixtures import claude, codex
 
 
 class ArenaTests(unittest.TestCase):
@@ -18,6 +19,8 @@ class ArenaTests(unittest.TestCase):
         # Fail closed if a test accidentally reaches a real model adapter.
         self.local = patch('providers.call_local', side_effect=AssertionError('Real local player forbidden'))
         self.api = patch('providers.call_api', side_effect=AssertionError('Real API player forbidden'))
+        patch('providers.claude_model_catalog', side_effect=claude).start()
+        patch('providers.codex_model_catalog', side_effect=codex).start()
         self.local.start()
         self.api.start()
         self.addCleanup(patch.stopall)
@@ -104,9 +107,40 @@ class ArenaTests(unittest.TestCase):
             saved['game_state'] = state
         with patch('app.choose_move', return_value=('B2', 'Center')) as choose:
             self.assertEqual(self.client.post('/api/next-move').status_code, 200)
-            self.assertEqual(choose.call_args.kwargs['selected_model'], 'sonnet')
-        self.assertEqual(self.client.get('/api/game-state').json['claude_model'], 'sonnet')
-        self.assertEqual(self.client.get('/api/game-state').json['players']['claude']['name'], 'sonnet')
+            self.assertEqual(choose.call_args.kwargs['selected_model'], 'claude-sonnet-5-5')
+        self.assertEqual(self.client.get('/api/game-state').json['claude_model'], 'claude-sonnet-5-5')
+        self.assertEqual(self.client.get('/api/game-state').json['players']['claude']['name'], 'Claude Sonnet 5.5')
+
+    def test_effort_selection_is_validated_saved_and_forwarded(self):
+        payload = {'mode': 'local', 'num_games': 2, 'gpt_model': 'fixture-codex',
+                   'claude_model': 'claude-opus-5-5', 'gpt_effort': 'ultra', 'claude_effort': 'max'}
+        response = self.client.post('/api/start-games', json=payload)
+        self.assertEqual(response.status_code, 200)
+        state = response.json['game_state']
+        self.assertEqual(state['gpt_effort'], 'ultra')
+        self.assertEqual(state['claude_effort'], 'max')
+        for key in ['gpt', 'claude']:
+            with self.client.session_transaction() as saved:
+                current = saved['game_state']
+                current['current_turn'] = current[key + '_mark']
+                saved['game_state'] = current
+            coord = 'A1' if key == 'gpt' else 'B1'
+            with patch('app.choose_move', return_value=(coord, 'Fixture')) as choose:
+                self.assertEqual(self.client.post('/api/next-move').status_code, 200)
+                self.assertEqual(choose.call_args.kwargs['effort'], payload[key + '_effort'])
+        self.assertEqual(self.client.get('/api/game-state').json['claude_effort'], 'max')
+        payload['claude_model'] = 'claude-haiku-4-5-20251001'
+        self.assertEqual(self.client.post('/api/start-games', json=payload).status_code, 400)
+        payload['claude_model'] = 'claude-opus-5-5'
+        payload['claude_effort'] = 'ultra'
+        self.assertEqual(self.client.post('/api/start-games', json=payload).status_code, 400)
+
+    def test_forced_test_configuration_never_discovers_real_models(self):
+        app.config['TEST_MODE'] = True
+        with patch('providers.claude_model_catalog', side_effect=AssertionError('No discovery in Test')):
+            self.assertEqual(self.client.get('/api/config').status_code, 200)
+            response = self.client.post('/api/start-games', json={'mode': 'local', 'claude_model': 'opus', 'claude_effort': 'max'})
+            self.assertEqual(response.json['game_state']['claude_effort'], 'default')
 
     def test_invalid_model_is_rejected_and_reset_clears_the_match(self):
         self.assertEqual(self.client.post('/api/start-games', json={'mode': 'local', 'claude_model': '--bad'}).status_code, 400)
@@ -174,15 +208,33 @@ class AdapterTests(unittest.TestCase):
             providers.call_local('gpt', 'board', 'chosen-model')
             self.assertEqual(json.loads(run.call_args.args[1])['model'], 'chosen-model')
 
+    def test_effort_reaches_claude_cli_and_codex_bridge(self):
+        result = {'structured_output': {'move': 'A1', 'explanation': 'Fixture'}}
+        with patch('providers.shutil.which', return_value='/fake/claude'), patch('providers.run_process', return_value=result) as run:
+            providers.call_local('claude', 'board', 'claude-opus-5-5', 'xhigh')
+            command = run.call_args.args[0]
+            self.assertEqual(command[command.index('--model') + 1], 'claude-opus-5-5')
+            self.assertEqual(command[command.index('--effort') + 1], 'xhigh')
+            self.assertEqual(run.call_args.kwargs['environment']['CLAUDE_CODE_EFFORT_LEVEL'], 'xhigh')
+            providers.call_local('claude', 'board', 'claude-opus-5-5', 'default')
+            self.assertNotIn('--effort', run.call_args.args[0])
+        with patch('providers.shutil.which', return_value='/fake/node'), patch.object(Path, 'is_dir', return_value=True), patch('providers.run_process', return_value={'move': 'B2', 'explanation': 'Fixture'}) as run:
+            providers.call_local('gpt', 'board', 'fixture-codex', 'ultra')
+            self.assertEqual(json.loads(run.call_args.args[1])['effort'], 'ultra')
+
     def test_catalog_uses_cached_metadata_without_starting_a_cli(self):
-        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'CODEX_HOME': directory, 'CODEX_MODEL': ''}), patch('providers.subprocess.Popen', side_effect=AssertionError('No CLI discovery')):
-            Path(directory, 'models_cache.json').write_text(json.dumps({'models': [
-                {'slug': 'fixture-model', 'display_name': 'Fixture model', 'visibility': 'list'},
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'CODEX_MODEL': ''}), patch('providers.subprocess.Popen', side_effect=AssertionError('No CLI discovery')):
+            cache = Path(directory, 'models_cache.json')
+            cache.write_text(json.dumps({'models': [
+                {'slug': 'fixture-model', 'display_name': 'Fixture model', 'visibility': 'list',
+                 'supported_reasoning_levels': [{'effort': 'low'}, {'effort': 'high'}], 'default_reasoning_level': 'low'},
                 {'slug': 'hidden-model', 'visibility': 'hide'},
             ]}))
-            options = providers.model_catalog()['local']['gpt']['models']
+            options = providers.codex_model_catalog(cache)['models']
             self.assertIn('fixture-model', [item['id'] for item in options])
             self.assertNotIn('hidden-model', [item['id'] for item in options])
+            self.assertEqual(options[1]['efforts'], ['default', 'low', 'high'])
+            self.assertEqual(options[1]['default_effort'], 'low')
 
     def test_missing_cli_actionable_message(self):
         with patch('providers.shutil.which', return_value=None):

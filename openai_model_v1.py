@@ -9,7 +9,7 @@ class GameAnswer(BaseModel):
     move: str = Field(pattern=r"^[ABC][123]$")
 
 # Function to call ChatGPT
-def call_chatgpt(user_prompt: str) -> tuple[str, str | None]:
+def call_chatgpt(user_prompt: str, effort: str = "high") -> tuple[str, str | None]:
     client = OpenAI()
     response = client.responses.parse(
         model="gpt-5.2",
@@ -34,7 +34,7 @@ def call_chatgpt(user_prompt: str) -> tuple[str, str | None]:
         ],
         text_format=GameAnswer,
         reasoning={
-            "effort": "high",
+            "effort": effort,
             "summary": "auto"
         },
     )
