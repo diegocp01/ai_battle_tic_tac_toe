@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import app as app_module
 from app import app, check_winner, init_game_state
 import providers
 from catalog_fixtures import claude, codex
@@ -223,6 +224,14 @@ class ArenaTests(unittest.TestCase):
         history = self.client.get('/api/match-history').json
         self.assertEqual(len({entry['match_id'] for entry in history['rounds']}), 2)
         self.assertEqual(sum(history['totals'].values()), 3)
+
+    def test_init_creates_an_empty_history_once_and_keeps_saved_rounds(self):
+        app_module.init_round_history()
+        self.assertEqual(json.loads(self.history.read_text()), {'rounds': []})
+        self.start('local')
+        self.play_round()
+        app_module.init_round_history()
+        self.assertEqual(len(json.loads(self.history.read_text())['rounds']), 1)
 
     def test_damaged_history_is_reported_and_never_overwritten(self):
         for invalid in ['not JSON', '[]', '{"rounds": {}}', '{"rounds": ["bad"]}']:

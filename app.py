@@ -59,6 +59,14 @@ def read_round_history():
     return archive['rounds']
 
 
+def init_round_history():
+    """Create the local round history on first start, so the all-time count begins at zero on this machine."""
+    with history_lock:
+        if not MATCH_HISTORY_PATH.exists():
+            MATCH_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+            MATCH_HISTORY_PATH.write_text(json.dumps({'rounds': []}, indent=2) + '\n')
+
+
 def save_round(entry):
     """Append one finished round, writing the file atomically so a crash never leaves it half-written."""
     with history_lock:
@@ -433,4 +441,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.test:
         app.config['TEST_MODE'] = True
+    init_round_history()
     app.run(host='127.0.0.1', debug=False, port=args.port)
