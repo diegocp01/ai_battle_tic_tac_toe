@@ -93,6 +93,28 @@ class ArenaTests(unittest.TestCase):
         with patch('app.choose_move', return_value=('B2', 'Take the center')):
             self.assertEqual(self.client.post('/api/next-move').status_code, 200)
 
+    def test_selected_model_is_saved_and_forwarded_to_its_adapter(self):
+        response = self.client.post('/api/start-games', json={
+            'mode': 'local', 'num_games': 2, 'gpt_model': 'default', 'claude_model': 'sonnet',
+        })
+        self.assertEqual(response.status_code, 200)
+        with self.client.session_transaction() as saved:
+            state = saved['game_state']
+            state['current_turn'] = state['claude_mark']
+            saved['game_state'] = state
+        with patch('app.choose_move', return_value=('B2', 'Center')) as choose:
+            self.assertEqual(self.client.post('/api/next-move').status_code, 200)
+            self.assertEqual(choose.call_args.kwargs['selected_model'], 'sonnet')
+        self.assertEqual(self.client.get('/api/game-state').json['claude_model'], 'sonnet')
+        self.assertEqual(self.client.get('/api/game-state').json['players']['claude']['name'], 'sonnet')
+
+    def test_invalid_model_is_rejected_and_reset_clears_the_match(self):
+        self.assertEqual(self.client.post('/api/start-games', json={'mode': 'local', 'claude_model': '--bad'}).status_code, 400)
+        self.start()
+        self.assertTrue(self.client.get('/api/game-state').json['started'])
+        self.assertEqual(self.client.post('/api/reset').status_code, 200)
+        self.assertFalse(self.client.get('/api/game-state').json['started'])
+
     def test_draw_and_winning_line_rules(self):
         board = dict(zip(providers.COORDS, ['X', 'O', 'X', 'X', 'O', 'O', 'O', 'X', 'X']))
         self.assertEqual(check_winner(board), 'draw')
@@ -139,6 +161,28 @@ class AdapterTests(unittest.TestCase):
         with patch('providers.shutil.which', return_value='/fake/node'), patch.object(Path, 'is_dir', return_value=True), patch('providers.run_process', return_value={'move': 'B2', 'explanation': 'Center'}) as run:
             self.assertEqual(providers.call_local('gpt', 'board'), ('B2', 'Center'))
             self.assertTrue(run.call_args.args[0][1].endswith('bridges/codex.mjs'))
+
+    def test_selected_cli_models_override_environment_defaults(self):
+        result = {'structured_output': {'move': 'A1', 'explanation': 'Fixture'}}
+        with patch('providers.shutil.which', return_value='/fake/claude'), patch('providers.run_process', return_value=result) as run, patch.dict(os.environ, {'CLAUDE_MODEL': 'opus'}):
+            providers.call_local('claude', 'board', 'sonnet')
+            command = run.call_args.args[0]
+            self.assertEqual(command[command.index('--model') + 1], 'sonnet')
+            providers.call_local('claude', 'board', 'default')
+            self.assertNotIn('--model', run.call_args.args[0])
+        with patch('providers.shutil.which', return_value='/fake/node'), patch.object(Path, 'is_dir', return_value=True), patch('providers.run_process', return_value={'move': 'B2', 'explanation': 'Fixture'}) as run:
+            providers.call_local('gpt', 'board', 'chosen-model')
+            self.assertEqual(json.loads(run.call_args.args[1])['model'], 'chosen-model')
+
+    def test_catalog_uses_cached_metadata_without_starting_a_cli(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'CODEX_HOME': directory, 'CODEX_MODEL': ''}), patch('providers.subprocess.Popen', side_effect=AssertionError('No CLI discovery')):
+            Path(directory, 'models_cache.json').write_text(json.dumps({'models': [
+                {'slug': 'fixture-model', 'display_name': 'Fixture model', 'visibility': 'list'},
+                {'slug': 'hidden-model', 'visibility': 'hide'},
+            ]}))
+            options = providers.model_catalog()['local']['gpt']['models']
+            self.assertIn('fixture-model', [item['id'] for item in options])
+            self.assertNotIn('hidden-model', [item['id'] for item in options])
 
     def test_missing_cli_actionable_message(self):
         with patch('providers.shutil.which', return_value=None):

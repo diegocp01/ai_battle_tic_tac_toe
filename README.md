@@ -1,6 +1,6 @@
 # AI Arena
 
-An Apple-inspired tic-tac-toe arena for Codex and Claude. Follow the board, move explanations, timings, and results in a responsive interface.
+Configure a Codex-versus-Claude tic-tac-toe match, then follow its moves, timings, and results.
 
 ![AI Arena](static/img/image.png)
 
@@ -16,17 +16,17 @@ npm ci
 python app.py
 ```
 
-Open [localhost:5001](http://localhost:5001), leave **Play with → Local CLIs** selected, choose the series length, and start a match.
+Open [localhost:5001](http://localhost:5001). Choose the connection, Codex model, Claude model, and number of rounds, then select **Start match**. The board and results appear after the match starts; **New match** returns to setup.
 
 - **Codex:** the installed `@openai/codex-sdk` uses its bundled Codex CLI and your existing ChatGPT sign-in. If needed, run `npx codex login` and choose ChatGPT. An existing Codex CLI login is reused. Local mode enforces ChatGPT authentication rather than API-key authentication.
 - **Claude:** uses your installed `claude` command and existing subscription sign-in. Run `claude` once to sign in if needed.
 - Local means the CLI runs on your computer; model inference still uses the providers’ services and your plan’s usage allowance. No API keys are required by this mode.
 
-The adapters preserve each CLI’s configured default model. Optional `CODEX_MODEL` and `CLAUDE_MODEL` overrides can go in `.env`; the model cards show them. Copy `.env.example` for other optional settings. `CODEX_CLI_PATH` selects a different installed Codex binary; otherwise the SDK uses its pinned runtime. No existing CLI configuration or credentials are changed.
+The model selectors offer **CLI default**, cached Codex models, and Claude’s `opus`, `sonnet`, and `haiku` aliases. Codex options come from the local CLI metadata cache, without starting a model call; the cache is not an entitlement check. If no cache exists, CLI default still works. Optional `CODEX_MODEL` and `CLAUDE_MODEL` values in `.env` are added to the selectors as defaults. Selected models are validated, saved with the series, and passed to the adapters for every move. Setup choices are remembered in this browser. Copy `.env.example` for other optional settings. `CODEX_CLI_PATH` selects a different installed Codex binary; otherwise the SDK uses its pinned runtime. No existing CLI configuration or credentials are changed.
 
 ## Choose a mode
 
-| Play with | Players | Credentials |
+| Connection | Players | Credentials |
 | --- | --- | --- |
 | **Local CLIs** (default) | Codex SDK + Claude CLI | Existing CLI sign-ins |
 | **API keys** | Existing GPT 5.2 + Claude Opus 4.5 adapters | `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` in `.env` |
@@ -46,8 +46,8 @@ python app.py --test
 
 - **Pause** finishes a move already in progress, then stops. **Resume match** continues the same series.
 - Refreshing restores an unfinished board in a paused state. Completed series stay visible until a new match begins.
-- Failed requests show an inline error and a retry action. You can switch a failed match to Test and start a fresh series.
-- Winning squares, explanations, timing, and history update automatically. Explanations are capped at 600 characters to keep browser sessions compact.
+- Failed starts stay on setup; failed moves stay on the match with a retry action. **New match** returns to model and round selection, where you can switch to Test.
+- The match view shows winning squares, explanations, timing, and history. [View the match screenshot](static/img/match.png). Explanations are capped at 600 characters to keep browser sessions compact.
 - Keyboard focus, screen-reader status announcements, and reduced motion are supported. The frontend needs no build or external fonts.
 
 The app binds to localhost and runs local processes under your account. The CLI adapters use an empty temporary working directory, disable command/web tools where supported, and time out after 180 seconds by default (`MODEL_TIMEOUT_SECONDS`). API credentials are removed from local child environments. Codex uses read-only permissions; Claude runs with tools disabled. Raw CLI diagnostics are not returned to the browser.

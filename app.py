@@ -6,7 +6,7 @@ import os
 import argparse
 from urllib.parse import urlparse
 from dotenv import load_dotenv
-from providers import MODES, ProviderError, choose_move, player_profiles
+from providers import MODES, ProviderError, choose_move, player_profiles, model_catalog, select_models
 
 load_dotenv()
 
@@ -33,6 +33,7 @@ def configuration():
     return jsonify({
         'default_mode': effective_mode(), 'test_only': app.config['TEST_MODE'],
         'profiles': {mode: player_profiles(mode) for mode in MODES},
+        'models': model_catalog(),
     })
 
 # Board coordinate mapping
@@ -45,6 +46,7 @@ def init_game_state(mode=None):
     return {
         'board': {coord: '.' for coord in COORDS},
         'mode': effective_mode(mode),
+        'started': False,
         'gpt_mark': 'X' if gpt_is_x else 'O',
         'claude_mark': 'O' if gpt_is_x else 'X',
         'current_turn': 'X',  # X always goes first
@@ -133,9 +135,15 @@ def start_games():
     mode = effective_mode(data.get('mode'))
     if mode not in MODES:
         return jsonify({'error': 'Choose Local, API, or Test mode.'}), 400
+    try:
+        selected = select_models(mode, data)
+    except ProviderError as error:
+        return jsonify({'error': str(error)}), 400
     num_games = max(1, min(10, num_games))  # Clamp to 1-10
     
     state = init_game_state(mode)
+    state.update(selected)
+    state['started'] = True
     state['total_games'] = num_games
     session['game_state'] = state
     
@@ -143,6 +151,12 @@ def start_games():
         'success': True,
         'game_state': get_client_state(state)
     })
+
+@app.route('/api/reset', methods=['POST'])
+def reset_match():
+    session.pop('game_state', None)
+    return jsonify({'success': True})
+
 
 @app.route('/api/game-state', methods=['GET'])
 def get_game_state():
@@ -171,7 +185,7 @@ def next_move():
     prompt = board_to_string(state['board'], current_turn)
     start_time = time.monotonic()
     try:
-        move, reasoning = choose_move(mode, model, prompt, state['board'])
+        move, reasoning = choose_move(mode, model, prompt, state['board'], selected_model=state.get(model + '_model'))
     except ProviderError as error:
         return jsonify({'error': str(error)}), 502
     elapsed = time.monotonic() - start_time
@@ -199,11 +213,11 @@ def next_move():
         elif result == state['gpt_mark']:
             state['gpt_stats']['wins'] += 1
             state['claude_stats']['losses'] += 1
-            winner_name = player_profiles(mode)['gpt']['name']
+            winner_name = player_profiles(mode, state)['gpt']['name']
         else:
             state['claude_stats']['wins'] += 1
             state['gpt_stats']['losses'] += 1
-            winner_name = player_profiles(mode)['claude']['name']
+            winner_name = player_profiles(mode, state)['claude']['name']
         
         # Add to history with timing data
         state['game_history'].append({
@@ -288,7 +302,10 @@ def get_client_state(state):
     return {
         'board': state['board'],
         'mode': effective_mode(state.get('mode')),
-        'players': player_profiles(effective_mode(state.get('mode'))),
+        'players': player_profiles(effective_mode(state.get('mode')), state),
+        'started': state.get('started', False),
+        'gpt_model': state.get('gpt_model', 'default'),
+        'claude_model': state.get('claude_model', 'default'),
         'gpt_mark': state['gpt_mark'],
         'claude_mark': state['claude_mark'],
         'current_turn': state['current_turn'],

@@ -4,46 +4,41 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#f5f5f7">
-    <meta name="description" content="Two AI models. Nine squares. Watch Codex and Claude play tic-tac-toe, one decision at a time.">
+    <meta name="description" content="Configure two AI players and watch a tic-tac-toe match.">
     <title>AI Arena — Tic-tac-toe</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%231d1d1f'/%3E%3Cpath d='M20 20l24 24m0-24L20 44' stroke='white' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="/static/js/game.js" defer></script>
 </head>
 <body>
-    <a class="skip-link" href="#arena">Skip to arena</a>
+    <a class="skip-link" href="#setup">Skip to setup</a>
     <header class="site-header">
         <nav class="nav" aria-label="Main navigation">
             <a class="brand" href="/" aria-label="AI Arena home"><span class="brand-symbol" aria-hidden="true">✳</span> AI Arena<span class="brand-divider"></span><span class="brand-game">Tic-tac-toe</span></a>
-            <a class="nav-link" href="#history">Match history <span aria-hidden="true">↗</span></a>
+            <div class="nav-actions"><span id="test-badge" class="test-badge hidden">Test · no LLM calls</span><a id="history-link" class="nav-link hidden" href="#history">Match history <span aria-hidden="true">↗</span></a></div>
         </nav>
     </header>
-
     <main class="shell">
-        <section class="intro" aria-labelledby="page-title">
-            <div class="eyebrow"><span></span> A LITTLE GAME. A LOT OF THINKING.</div>
-            <h1 id="page-title">Great minds.<br><span>Small board.</span></h1>
-            <p>Two AI models. Nine squares. Watch every decision unfold.</p>
-        </section>
-
-        <section id="arena" class="arena" aria-label="AI match arena" tabindex="-1">
-            <div class="arena-toolbar">
-                <div class="session-heading"><span id="session-indicator" class="status-dot"></span><h2 id="session-title">Ready when you are</h2><span id="game-counter" class="game-counter hidden">Game <b id="game-number">1</b> of <b id="total-games">3</b></span></div>
-                <div class="match-controls">
-                    <label for="game-count">Series length</label>
-                    <select id="game-count" aria-label="Series length">
-                        {% for count in range(1, 11) %}<option value="{{ count }}" {% if count == 3 %}selected{% endif %}>{{ count }} game{{ 's' if count != 1 else '' }}</option>{% endfor %}
-                    </select>
-                    <button id="btn-pause" class="button secondary hidden" type="button">Pause</button>
-                    <button id="btn-run" class="button primary" type="button"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M5 3.5 12 8l-7 4.5z" fill="currentColor"/></svg><span>Start match</span></button>
+        <div id="error-message" class="error-banner hidden" role="alert"></div>
+        <section id="setup" class="setup" aria-labelledby="setup-title">
+            <form id="setup-form" class="setup-card">
+                <h1 id="setup-title" tabindex="-1">New match</h1>
+                <div class="setup-connection"><label for="play-mode">Connection</label><select id="play-mode" aria-describedby="mode-description"><option value="local">Local CLIs</option><option value="api">API keys</option><option value="test">Test</option></select><p id="mode-description">Signed-in CLIs</p></div>
+                <div class="player-picks">
+                    <fieldset class="player-pick gpt-pick"><legend>OpenAI / Codex</legend><label for="gpt-model">Model</label><select id="gpt-model" disabled><option value="default">Loading…</option></select></fieldset>
+                    <span class="versus" aria-hidden="true">vs</span>
+                    <fieldset class="player-pick claude-pick"><legend>Anthropic / Claude</legend><label for="claude-model">Model</label><select id="claude-model" disabled><option value="default">Loading…</option></select></fieldset>
                 </div>
-            </div>
-            <div class="mode-bar">
-                <div class="mode-choice"><label for="play-mode">Play with</label><select id="play-mode" aria-describedby="mode-description"><option value="local">Local CLIs</option><option value="api">API keys</option><option value="test">Test</option></select></div>
-                <p id="mode-description">Uses your signed-in Codex and Claude CLIs. No API keys needed.</p>
-                <span id="test-badge" class="test-badge hidden">Test · no LLM calls</span>
-            </div>
-            <div id="error-message" class="error-banner hidden" role="alert"></div>
+                <div class="rounds-pick"><label for="game-count">Rounds</label><select id="game-count">{% for count in range(1, 11) %}<option value="{{ count }}" {% if count == 3 %}selected{% endif %}>{{ count }}</option>{% endfor %}</select></div>
+                <button id="btn-run" class="button primary start-button" type="submit" disabled><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M5 3.5 12 8l-7 4.5z" fill="currentColor"/></svg><span>Start match</span></button>
+            </form>
+        </section>
+        <div id="match-view" class="match-view hidden">
+            <section id="arena" class="arena" aria-label="AI match arena" tabindex="-1">
+                <div class="arena-toolbar">
+                    <div class="session-heading"><span id="session-indicator" class="status-dot"></span><h2 id="session-title">Ready</h2><span id="game-counter" class="game-counter">Round <b id="game-number">1</b> of <b id="total-games">3</b></span></div>
+                    <div class="match-controls"><button id="btn-pause" class="button secondary hidden" type="button">Pause</button><button id="btn-resume" class="button primary hidden" type="button">Resume match</button><button id="btn-new" class="button secondary" type="button">New match</button></div>
+                </div>
             <div class="game-area">
                 {% for model, provider, name, mode, mark in [('gpt', 'OpenAI', 'Codex', 'Codex SDK · CLI default model', 'X'), ('claude', 'Anthropic', 'Claude', 'Claude CLI · CLI default model', 'O')] %}
                 <article class="model-panel {{ model }}-panel" id="{{ model }}-panel" aria-labelledby="{{ model }}-name">
@@ -61,12 +56,11 @@
                         <div><span id="{{ model }}-losses" class="stat-value">0</span><span class="stat-label">Losses</span></div>
                     </div>
                     <dl class="timing-info"><div><dt>Last move</dt><dd id="{{ model }}-last-move">—</dd></div><div><dt>Move time</dt><dd id="{{ model }}-last-time">—</dd></div><div><dt>Game time</dt><dd id="{{ model }}-total-time">—</dd></div></dl>
-                    <details class="reasoning-box" open><summary>Behind the move <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"/></svg></summary><div id="{{ model }}-reasoning" class="reasoning-text">Every move has a reason. See the model’s explanation here as it plays.</div></details>
+                    <details class="reasoning-box" open><summary>Explanation <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"/></svg></summary><div id="{{ model }}-reasoning" class="reasoning-text">No moves yet.</div></details>
                 </article>
                 {% endfor %}
 
                 <div class="board-container">
-                    <div class="board-kicker"><span class="tiny-grid" aria-hidden="true">▦</span> THE PLAYING FIELD</div>
                     <div class="board-wrapper">
                         <div class="board-labels-top" aria-hidden="true"><span>A</span><span>B</span><span>C</span></div>
                         <div class="board-with-rows">
@@ -76,21 +70,20 @@
                             </div>
                         </div>
                     </div>
-                    <div class="board-status"><div id="game-status" role="status" aria-live="polite">The next move is yours.</div><p id="status-detail">Choose your series length and start a match.</p></div>
-                    <div class="board-legend"><span><i class="legend-x">×</i> First to move</span><span><i class="legend-o">○</i> A worthy opponent</span></div>
+                    <div class="board-status"><div id="game-status" role="status" aria-live="polite">Starting match…</div><p id="status-detail"></p></div>
+                    <div class="board-legend"><span><i class="legend-x">×</i> Plays first</span><span><i class="legend-o">○</i> Plays second</span></div>
                 </div>
             </div>
-            <div class="arena-footer"><span><svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 7v4M8 4.5v.5"/></svg> Marks are randomly assigned each game. X goes first.</span><span id="series-progress-text">Make room for a little competition.</span><progress id="series-progress" value="0" max="3" class="hidden" aria-label="Series progress"></progress></div>
-        </section>
-
-        <section id="history" class="history-section" aria-labelledby="history-title">
-            <div class="section-heading"><div><h2 id="history-title">Match history</h2><p>A play-by-play, minus the guesswork.</p></div><span id="history-count" class="count-badge">0 games</span></div>
-            <div class="history-card">
-                <div id="history-empty" class="history-empty"><span class="history-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 6h14v14H5zM8 3v6m8-6v6M5 10h14m-10 4h6m-6 3h4"/></svg></span><div><h3>A fresh start.</h3><p>Completed games will appear here. Let the best model win.</p></div></div>
-                <div id="history-table-wrap" class="table-wrap hidden" tabindex="0" role="region" aria-label="Completed games"><table class="stats-table"><thead><tr><th scope="col">Game</th><th scope="col">Finished at</th><th scope="col">Result</th><th id="gpt-time-heading" scope="col">Codex time</th><th id="claude-time-heading" scope="col">Claude time</th></tr></thead><tbody id="stats-body"></tbody></table></div>
-            </div>
-        </section>
-        <footer class="page-footer"><span>Built for curiosity.</span><span><span id="matchup-label">Codex × Claude</span> <span class="footer-dot">·</span> Tic-tac-toe, reimagined.</span></footer>
+                <div class="arena-footer"><span>Marks change each round. X plays first.</span><span id="series-progress-text"></span><progress id="series-progress" value="0" max="3" aria-label="Series progress"></progress></div>
+            </section>
+            <section id="history" class="history-section" aria-labelledby="history-title">
+                <div class="section-heading"><h2 id="history-title">Match history</h2><span id="history-count" class="count-badge">0 rounds</span></div>
+                <div class="history-card">
+                    <p id="history-empty" class="history-empty">No completed rounds.</p>
+                    <div id="history-table-wrap" class="table-wrap hidden" tabindex="0" role="region" aria-label="Completed rounds"><table class="stats-table"><thead><tr><th scope="col">Round</th><th scope="col">Finished at</th><th scope="col">Result</th><th id="gpt-time-heading" scope="col">Codex time</th><th id="claude-time-heading" scope="col">Claude time</th></tr></thead><tbody id="stats-body"></tbody></table></div>
+                </div>
+            </section>
+        </div>
     </main>
 </body>
 </html>

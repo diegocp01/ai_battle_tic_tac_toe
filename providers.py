@@ -1,6 +1,7 @@
 """Player adapters. Test mode never imports SDKs or starts subprocesses."""
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import signal
@@ -25,21 +26,71 @@ class ProviderError(RuntimeError):
     pass
 
 
-def player_profiles(mode):
-    if mode == 'test':
-        return {
-            'gpt': {'name': 'Test player A', 'detail': 'Simulated player · no LLM'},
-            'claude': {'name': 'Test player B', 'detail': 'Simulated player · no LLM'},
-        }
-    if mode == 'api':
-        return {
-            'gpt': {'name': 'GPT 5.2', 'detail': 'OpenAI API · high reasoning'},
-            'claude': {'name': 'Claude Opus 4.5', 'detail': 'Anthropic API · thinking'},
-        }
+def model_catalog():
+    """Read local model metadata only; never start a CLI or make an inference call."""
+    codex = [{'id': 'default', 'name': 'CLI default'}]
+    cache = Path(os.getenv('CODEX_HOME') or Path.home() / '.codex') / 'models_cache.json'
+    try:
+        if cache.stat().st_size <= 1_000_000:
+            cached = json.loads(cache.read_text())
+            for item in cached.get('models', []):
+                if not isinstance(item, dict) or item.get('visibility') == 'hide':
+                    continue
+                model_id = item.get('slug', '')
+                if isinstance(model_id, str) and re.fullmatch(r'[a-zA-Z0-9_.:-]{1,100}', model_id):
+                    codex.append({'id': model_id, 'name': str(item.get('display_name') or model_id)[:100]})
+    except (OSError, ValueError, AttributeError):
+        pass
+    claude = [{'id': 'default', 'name': 'CLI default'}, {'id': 'opus', 'name': 'Opus'},
+              {'id': 'sonnet', 'name': 'Sonnet'}, {'id': 'haiku', 'name': 'Haiku'}]
+    defaults = {}
+    for key, options, variable in [('gpt', codex, 'CODEX_MODEL'), ('claude', claude, 'CLAUDE_MODEL')]:
+        configured = os.getenv(variable, '')
+        if re.fullmatch(r'[a-zA-Z0-9_.:-]{1,100}', configured):
+            if configured not in [item['id'] for item in options]:
+                options.append({'id': configured, 'name': configured})
+            defaults[key] = configured
+        else:
+            defaults[key] = 'default'
     return {
-        'gpt': {'name': 'Codex', 'detail': os.getenv('CODEX_MODEL') or 'Codex SDK · CLI default model'},
-        'claude': {'name': 'Claude', 'detail': os.getenv('CLAUDE_MODEL') or 'Claude CLI · CLI default model'},
+        'local': {key: {'models': options, 'default': defaults[key]} for key, options in [('gpt', codex), ('claude', claude)]},
+        'api': {
+            'gpt': {'models': [{'id': 'gpt-5.2', 'name': 'GPT 5.2'}], 'default': 'gpt-5.2'},
+            'claude': {'models': [{'id': 'claude-opus-4-5-20251101', 'name': 'Claude Opus 4.5'}], 'default': 'claude-opus-4-5-20251101'},
+        },
+        'test': {
+            'gpt': {'models': [{'id': 'default', 'name': 'Test player A'}], 'default': 'default'},
+            'claude': {'models': [{'id': 'default', 'name': 'Test player B'}], 'default': 'default'},
+        },
     }
+
+
+def select_models(mode, settings):
+    catalog = model_catalog()[mode]
+    selected = {}
+    for key in ('gpt', 'claude'):
+        requested = settings.get(key + '_model', catalog[key]['default'])
+        if mode == 'test':
+            requested = 'default'
+        if requested not in [item['id'] for item in catalog[key]['models']]:
+            raise ProviderError('Choose a model from the available options.')
+        selected[key + '_model'] = requested
+    return selected
+
+
+def player_profiles(mode, settings=None):
+    settings = settings or {}
+    profiles = {
+        'test': {'gpt': {'name': 'Test player A', 'detail': 'Simulated'}, 'claude': {'name': 'Test player B', 'detail': 'Simulated'}},
+        'api': {'gpt': {'name': 'GPT 5.2', 'detail': 'OpenAI API'}, 'claude': {'name': 'Claude Opus 4.5', 'detail': 'Anthropic API'}},
+        'local': {'gpt': {'name': 'Codex', 'detail': 'Codex SDK'}, 'claude': {'name': 'Claude', 'detail': 'Claude CLI'}},
+    }[mode]
+    if mode == 'local':
+        for key in profiles:
+            selected = settings.get(key + '_model')
+            if selected and selected != 'default':
+                profiles[key]['name'] = selected
+    return profiles
 
 
 def local_environment():
@@ -91,7 +142,10 @@ def parse_move(data):
     return data['move'], explanation[:600]
 
 
-def call_local(model, prompt):
+def call_local(model, prompt, selected_model=None):
+    selected = selected_model if selected_model is not None else os.getenv('CODEX_MODEL' if model == 'gpt' else 'CLAUDE_MODEL')
+    if selected == 'default':
+        selected = None
     instructions = (
         'Play tic-tac-toe using only the supplied board. Do not use tools, files, '
         'or external information. Return JSON with a legal move and a brief '
@@ -103,7 +157,7 @@ def call_local(model, prompt):
             raise ProviderError('Codex SDK is not ready. Install Node.js and run npm ci in the app folder.')
         data = run_process(
             [node, str(ROOT / 'bridges/codex.mjs')],
-            json.dumps({'prompt': instructions, 'model': os.getenv('CODEX_MODEL')}), 'Codex SDK',
+            json.dumps({'prompt': instructions, 'model': selected}), 'Codex SDK',
         )
     else:
         claude = shutil.which(os.getenv('CLAUDE_BIN', 'claude'))
@@ -115,8 +169,8 @@ def call_local(model, prompt):
             '--setting-sources', '', '--settings', '{"disableAllHooks":true}',
             '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--no-chrome',
         ]
-        if os.getenv('CLAUDE_MODEL'):
-            command += ['--model', os.environ['CLAUDE_MODEL']]
+        if selected:
+            command += ['--model', selected]
         result = run_process(command, instructions, 'Claude CLI')
         if not isinstance(result, dict) or result.get('is_error'):
             raise ProviderError('Claude CLI could not complete the turn. Run claude to check sign-in and model access.')
@@ -143,7 +197,7 @@ def call_api(model, prompt):
         raise ProviderError('API request failed. Check the selected provider’s API key, access, and quota.') from error
 
 
-def choose_move(mode, model, prompt, board):
+def choose_move(mode, model, prompt, board, selected_model=None):
     if mode == 'test':
         # No imports, subprocesses, credentials, network, or fallback to real players.
         move = next((coord for coord in COORDS if board[coord] == '.'), None)
@@ -151,7 +205,7 @@ def choose_move(mode, model, prompt, board):
             raise ProviderError('No legal moves remain.')
         return move, f'Test mode: chose the first empty square, {move}. No LLM was called.'
     if mode == 'local':
-        return call_local(model, prompt)
+        return call_local(model, prompt, selected_model)
     if mode == 'api':
         return call_api(model, prompt)
     raise ProviderError('Unknown player mode.')

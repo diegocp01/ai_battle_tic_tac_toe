@@ -3,6 +3,9 @@
 const $ = (id) => document.getElementById(id);
 const names = { gpt: 'Codex', claude: 'Claude' };
 let configuration = null;
+const settingsKey = 'tic-tac-toe-settings';
+let preferences = {};
+try { preferences = JSON.parse(localStorage.getItem(settingsKey)) || {}; } catch {}
 const winningLines = [
     ['A1', 'B1', 'C1'], ['A2', 'B2', 'C2'], ['A3', 'B3', 'C3'],
     ['A1', 'A2', 'A3'], ['B1', 'B2', 'B3'], ['C1', 'C2', 'C3'],
@@ -23,18 +26,73 @@ function setStatus(title, detail) {
 function setMode(next) {
     mode = next;
     const active = ['running', 'pausing'].includes(mode);
-    const resumable = state && !state.all_games_complete;
-    const locked = ['loading', 'starting', 'running', 'pausing', 'paused'].includes(mode) || (mode === 'error' && resumable);
-    $('game-count').disabled = Boolean(locked);
-    $('play-mode').disabled = Boolean((locked && mode !== 'error') || configuration?.test_only);
-    $('btn-run').classList.toggle('hidden', active);
-    $('btn-run').disabled = ['loading', 'starting'].includes(mode);
-    $('btn-run').querySelector('span').textContent = ({ loading: 'Connecting…', starting: 'Starting…', paused: 'Resume match', error: resumable ? 'Retry match' : 'Try again', complete: 'New match' })[mode] || 'Start match';
+    const loading = ['loading', 'starting'].includes(mode);
+    for (const id of ['game-count', 'gpt-model', 'claude-model']) $(id).disabled = active || loading;
+    $('play-mode').disabled = active || loading || Boolean(configuration?.test_only);
+    $('btn-run').disabled = loading;
+    $('btn-run').querySelector('span').textContent = ({loading: 'Loading…', starting: 'Starting…', error: 'Try again'})[mode] || 'Start match';
     $('btn-pause').classList.toggle('hidden', !active);
     $('btn-pause').disabled = mode === 'pausing';
     $('btn-pause').textContent = mode === 'pausing' ? 'Pausing…' : 'Pause';
-    $('session-title').textContent = ({ loading: 'Connecting to arena', idle: 'Ready when you are', starting: 'Setting the board', running: 'Match in progress', pausing: 'Finishing this turn', paused: 'Match paused', error: 'Match interrupted', complete: 'Series complete' })[mode];
+    $('btn-resume').classList.toggle('hidden', !(state && ['paused', 'error'].includes(mode)));
+    $('btn-resume').textContent = mode === 'error' ? 'Retry move' : 'Resume match';
+    $('btn-new').disabled = active || loading;
+    $('session-title').textContent = ({loading: 'Loading', idle: 'Ready', starting: 'Starting', running: 'Match in progress', pausing: 'Finishing turn', paused: 'Match paused', error: 'Match interrupted', complete: 'Series complete'})[mode];
     $('session-indicator').className = 'status-dot ' + mode;
+}
+
+function showMatch() {
+    $('setup').classList.add('hidden');
+    $('match-view').classList.remove('hidden');
+    $('history-link').classList.remove('hidden');
+    document.querySelector('.skip-link').href = '#arena';
+    document.querySelector('.skip-link').textContent = 'Skip to match';
+}
+
+function populateModels(selectedMode, preferred = {}) {
+    const saved = preferences.models?.[selectedMode] || {};
+    for (const key of Object.keys(names)) {
+        const info = configuration.models[selectedMode][key];
+        const select = $(key + '-model');
+        select.replaceChildren();
+        for (const model of info.models) {
+            const option = document.createElement('option');
+            option.value = model.id;
+            option.textContent = model.name;
+            select.appendChild(option);
+        }
+        const requested = preferred[key + '_model'] || saved[key + '_model'] || info.default;
+        select.value = info.models.some(item => item.id === requested) ? requested : info.default;
+    }
+}
+
+function rememberSettings() {
+    const selected = $('play-mode').value;
+    preferences.mode = selected;
+    preferences.num_games = Number($('game-count').value);
+    preferences.models = preferences.models || {};
+    preferences.models[selected] = {gpt_model: $('gpt-model').value, claude_model: $('claude-model').value};
+    try { localStorage.setItem(settingsKey, JSON.stringify(preferences)); } catch {}
+}
+
+async function newMatch() {
+    if (loopActive) return;
+    $('btn-new').disabled = true;
+    try {
+        await request('reset', {method: 'POST'});
+        state = null;
+        renderedGame = null;
+        clearThinking();
+        $('error-message').classList.add('hidden');
+        $('match-view').classList.add('hidden');
+        $('history-link').classList.add('hidden');
+        $('setup').classList.remove('hidden');
+        document.querySelector('.skip-link').href = '#setup';
+        document.querySelector('.skip-link').textContent = 'Skip to setup';
+        setMode('idle');
+        $('setup-title').focus({preventScroll: true});
+        window.scrollTo(0, 0);
+    } catch (error) { showError(error); }
 }
 
 async function request(path, options = {}) {
@@ -55,7 +113,7 @@ function showError(error) {
     $('error-message').textContent = error.message || 'Connection lost. Check that the app is running, then try again.';
     $('error-message').classList.remove('hidden');
     setMode('error');
-    setStatus('Let’s try that again.', state ? 'Your board is saved. Retry to continue the match.' : 'Check your connection and API setup, then try again.');
+    setStatus('Match interrupted.', 'Retry the move or start a new match.');
 }
 
 function clearThinking() {
@@ -78,7 +136,7 @@ function showThinking(model) {
     timer = setInterval(() => {
         $(model + '-timer').textContent = ((performance.now() - start) / 1000).toFixed(1) + 's';
     }, 100);
-    setStatus(names[model] + ' is thinking.', 'A little patience. A considered move.');
+    setStatus(names[model] + ' is thinking.', '');
 }
 
 function renderBoard(current) {
@@ -113,15 +171,14 @@ function renderProfiles(profiles) {
         $(model + '-panel').querySelector('.stats-box').setAttribute('aria-label', names[model] + ' results');
         $(model + '-time-heading').textContent = names[model] + ' time';
     }
-    $('matchup-label').textContent = names.gpt + ' × ' + names.claude;
 }
 
 function renderMode(selected) {
     $('play-mode').value = selected;
     $('test-badge').classList.toggle('hidden', selected !== 'test');
     $('mode-description').textContent = configuration?.test_only
-        ? 'Test mode is enforced by the server. Real models cannot be called.'
-        : ({local: 'Uses your signed-in Codex and Claude CLIs. No API keys needed.', api: 'Uses OpenAI and Anthropic API keys from the server’s .env file.', test: 'Simulated players. No CLI, API, or real LLM calls.'})[selected];
+        ? 'Test mode · simulated players'
+        : ({local: 'Signed-in CLIs', api: 'API keys required', test: 'Simulated players'})[selected];
 }
 
 function render(current) {
@@ -144,7 +201,7 @@ function render(current) {
         }
         $(model + '-last-time').textContent = Number(current[model + '_last_time'] || 0).toFixed(1) + 's';
         $(model + '-total-time').textContent = Number(current[model + '_total_time'] || 0).toFixed(1) + 's';
-        $(model + '-reasoning').textContent = current[model + '_reasoning'] || 'The model’s explanation will appear after its next move.';
+        $(model + '-reasoning').textContent = current[model + '_reasoning'] || 'No moves yet.';
         $(model + '-idle').textContent = current.game_over ? 'Game finished' : current.current_model === model ? 'Up next' : 'Waiting for its turn';
         if (changedGame) $(model + '-last-move').textContent = '—';
     }
@@ -152,16 +209,16 @@ function render(current) {
     $('series-progress').classList.remove('hidden');
     $('series-progress').max = current.total_games;
     $('series-progress').value = current.game_history.length;
-    $('series-progress-text').textContent = current.game_history.length + ' of ' + current.total_games + ' games complete';
+    $('series-progress-text').textContent = current.game_history.length + ' of ' + current.total_games + ' rounds complete';
     if (current.game_over) {
-        setStatus(current.winner === 'draw' ? 'A well-matched draw.' : names[current.winner === current.gpt_mark ? 'gpt' : 'claude'] + ' takes the game.', current.all_games_complete ? 'Every move counted.' : 'The next game begins in a moment.');
+        setStatus(current.winner === 'draw' ? 'Draw.' : names[current.winner === current.gpt_mark ? 'gpt' : 'claude'] + ' wins.', current.all_games_complete ? '' : 'Next round starting…');
     }
 }
 
 function renderHistory(history) {
     $('history-empty').classList.toggle('hidden', history.length > 0);
     $('history-table-wrap').classList.toggle('hidden', history.length === 0);
-    $('history-count').textContent = history.length + (history.length === 1 ? ' game' : ' games');
+    $('history-count').textContent = history.length + (history.length === 1 ? ' round' : ' rounds');
     $('stats-body').replaceChildren();
     for (const game of [...history].reverse()) {
         const row = document.createElement('tr');
@@ -180,7 +237,7 @@ function finishSeries() {
     setMode('complete');
     const gptWins = state.gpt_stats.wins;
     const claudeWins = state.claude_stats.wins;
-    const result = gptWins === claudeWins ? 'Honors shared.' : names[gptWins > claudeWins ? 'gpt' : 'claude'] + ' wins the series.';
+    const result = gptWins === claudeWins ? 'Series tied.' : names[gptWins > claudeWins ? 'gpt' : 'claude'] + ' wins the series.';
     setStatus(result, `${gptWins} ${names.gpt} wins · ${claudeWins} ${names.claude} wins · ${state.gpt_stats.draws} draws`);
 }
 
@@ -213,7 +270,7 @@ async function runGameLoop() {
                 finishSeries();
                 break;
             }
-            if (!state.game_over) setStatus(names[move.model] + ' played ' + move.move + '.', 'The board is taking shape.');
+            if (!state.game_over) setStatus(names[move.model] + ' played ' + move.move + '.', '');
             if (mode !== 'running') break;
             await sleep(state.mode === 'test' ? 250 : 1000);
         }
@@ -224,71 +281,77 @@ async function runGameLoop() {
         loopActive = false;
         if (mode === 'pausing') {
             setMode('paused');
-            setStatus('A moment to think.', 'Resume whenever you’re ready.');
+            setStatus('Paused.', '');
         }
     }
 }
 
-async function startGames() {
+async function startGames(event) {
+    event?.preventDefault();
     if (loopActive || ['loading', 'starting'].includes(mode)) return;
     $('error-message').classList.add('hidden');
-    if ((mode === 'paused' || mode === 'error') && state && !state.all_games_complete && $('play-mode').value === state.mode) {
-        await runGameLoop();
+    if (!configuration) {
+        await restoreSession();
         return;
     }
+    const settings = {
+        num_games: Number($('game-count').value), mode: $('play-mode').value,
+        gpt_model: $('gpt-model').value, claude_model: $('claude-model').value,
+    };
     setMode('starting');
     try {
         const data = await request('start-games', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ num_games: Number($('game-count').value), mode: $('play-mode').value })
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(settings),
         });
+        rememberSettings();
         renderedGame = null;
         render(data.game_state);
+        showMatch();
+        $('arena').focus({preventScroll: true});
+        window.scrollTo(0, 0);
         await runGameLoop();
-    } catch (error) {
-        showError(error);
-    }
+    } catch (error) { showError(error); }
 }
 
-$('btn-run').addEventListener('click', startGames);
+$('setup-form').addEventListener('submit', startGames);
+$('btn-new').addEventListener('click', newMatch);
+$('btn-resume').addEventListener('click', () => {
+    if (loopActive) return;
+    $('error-message').classList.add('hidden');
+    runGameLoop();
+});
 $('btn-pause').addEventListener('click', () => {
     if (mode !== 'running') return;
     setMode('pausing');
-    setStatus('Pausing after this turn.', 'Any move already in progress will finish first.');
+    setStatus('Pausing after this turn.', '');
 });
-$('game-count').addEventListener('change', () => {
-    if (!state) $('series-progress').max = Number($('game-count').value);
-});
-
 $('play-mode').addEventListener('change', () => {
     const selected = $('play-mode').value;
     renderMode(selected);
-    if (!state && configuration) renderProfiles(configuration.profiles[selected]);
-    if (mode === 'error' && state && !state.all_games_complete) {
-        $('btn-run').querySelector('span').textContent = selected === state.mode ? 'Retry match' : 'Start new match';
-        $('game-count').disabled = selected === state.mode;
-    }
+    populateModels(selected);
 });
 
 async function restoreSession() {
     setMode('loading');
     try {
         configuration = await request('config');
-        renderMode(configuration.default_mode);
-        renderProfiles(configuration.profiles[configuration.default_mode]);
+        const selected = configuration.test_only ? 'test' : configuration.models[preferences.mode] ? preferences.mode : configuration.default_mode;
+        renderMode(selected);
+        populateModels(selected);
+        const rounds = Number(preferences.num_games);
+        if (Number.isInteger(rounds) && rounds >= 1 && rounds <= 10) $('game-count').value = rounds;
         const saved = await request('game-state');
-        if (saved.game_history.length || Object.values(saved.board).some((value) => value !== '.')) {
+        if (saved.started || saved.game_history.length || Object.values(saved.board).some(value => value !== '.')) {
             $('game-count').value = saved.total_games;
+            populateModels(saved.mode, saved);
             render(saved);
+            showMatch();
             if (saved.all_games_complete) finishSeries();
             else {
                 setMode('paused');
-                setStatus('Welcome back.', 'Your match is saved. Resume whenever you’re ready.');
+                setStatus('Match paused.', '');
             }
         } else setMode('idle');
-    } catch (error) {
-        showError(error);
-    }
+    } catch (error) { showError(error); }
 }
 restoreSession();
