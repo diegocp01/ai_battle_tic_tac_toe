@@ -59,6 +59,24 @@ class ArenaTests(unittest.TestCase):
             self.assertTrue(self.client.get('/api/game-state').json['all_games_complete'])
             self.assertEqual(self.start().json['game_state']['game_history'], [])
 
+    def play_out_game(self):
+        while not self.client.post('/api/next-move').json['game_state']['game_over']:
+            pass
+
+    def test_first_player_is_random_per_match_then_alternates_each_round(self):
+        for gpt_starts in [True, False]:
+            with patch('app.random.choice', return_value=gpt_starts):
+                state = self.start(games=4).json['game_state']
+            starters = []
+            for round_number in range(1, 5):
+                self.assertEqual(state['current_turn'], 'X')
+                starters.append(state['current_model'])
+                self.play_out_game()
+                if round_number < 4:
+                    state = self.client.post('/api/next-game').json['game_state']
+            first, second = ('gpt', 'claude') if gpt_starts else ('claude', 'gpt')
+            self.assertEqual(starters, [first, second, first, second])
+
     def test_forced_test_overrides_local_and_api_requests(self):
         app.config['TEST_MODE'] = True
         for mode in ['local', 'api', 'test', 'bogus']:

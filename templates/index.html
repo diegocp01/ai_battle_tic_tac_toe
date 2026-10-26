@@ -48,7 +48,7 @@
                         <details class="player-more"><summary>Statistics &amp; timing</summary>
                             <div id="{{ model }}-stats" class="stats-box" aria-label="{{ name }} results"><div><span id="{{ model }}-wins" class="stat-value">0</span><span class="stat-label">Wins</span></div><div><span id="{{ model }}-draws" class="stat-value">0</span><span class="stat-label">Draws</span></div><div><span id="{{ model }}-losses" class="stat-value">0</span><span class="stat-label">Losses</span></div></div>
                             <dl class="timing-info"><div><dt>Move time</dt><dd id="{{ model }}-last-time">—</dd></div><div><dt>Game time</dt><dd id="{{ model }}-total-time">—</dd></div></dl>
-                            {% if model == 'gpt' %}<div class="series-details"><span class="session-heading"><span id="session-indicator" class="status-dot"></span><span id="session-title">Ready</span></span><span id="series-progress-text"></span><progress id="series-progress" value="0" max="3" aria-label="Series progress"></progress></div><p class="match-rules">Marks change each round. X plays first, O plays second.</p>{% endif %}
+                            {% if model == 'gpt' %}<div class="series-details"><span class="session-heading"><span id="session-indicator" class="status-dot"></span><span id="session-title">Ready</span></span><span id="series-progress-text"></span><progress id="series-progress" value="0" max="3" aria-label="Series progress"></progress></div><p class="match-rules">First player is random in round 1, then alternates each round. X plays first, O plays second.</p>{% endif %}
                         </details>
                     </div>
                 </aside>

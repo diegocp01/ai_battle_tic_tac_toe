@@ -58,7 +58,7 @@ COORDS = ['A1', 'B1', 'C1', 'A2', 'B2', 'C2', 'A3', 'B3', 'C3']
 
 def init_game_state(mode=None):
     """Initialize a fresh game state."""
-    # Randomly assign X/O to models
+    # A new match randomly picks who plays X, and X always goes first
     gpt_is_x = random.choice([True, False])
     return {
         'board': {coord: '.' for coord in COORDS},
@@ -279,11 +279,9 @@ def next_game():
     total_games = state['total_games']
     current_game = state['current_game'] + 1
     
-    # Reset for next game with random X/O assignment
-    gpt_is_x = random.choice([True, False])
+    # Swap marks so whoever went second last round goes first this round
     state['board'] = {coord: '.' for coord in COORDS}
-    state['gpt_mark'] = 'X' if gpt_is_x else 'O'
-    state['claude_mark'] = 'O' if gpt_is_x else 'X'
+    state['gpt_mark'], state['claude_mark'] = state['claude_mark'], state['gpt_mark']
     state['current_turn'] = 'X'
     state['game_over'] = False
     state['winner'] = None
