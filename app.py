@@ -3,6 +3,8 @@ import random
 from datetime import datetime
 import time
 import os
+import threading
+import uuid
 import argparse
 import json
 import plistlib
@@ -19,7 +21,9 @@ app.secret_key = os.getenv('FLASK_SECRET_KEY') or os.urandom(24)
 app.config['TEST_MODE'] = os.getenv('ARENA_TEST_MODE', '').lower() in ('1', 'true', 'yes')
 app.config['TRUSTED_HOSTS'] = ['localhost', '127.0.0.1', '[::1]']
 app.config['MAX_CONTENT_LENGTH'] = 16384
-MATCH_HISTORY_PATH = Path(__file__).resolve().parent / 'data' / 'match-history.json'
+# Every real (non-test) round is saved here as it ends; the file is local data, not tracked in git.
+MATCH_HISTORY_PATH = Path(os.getenv('ARENA_HISTORY_PATH') or Path(__file__).resolve().parent / 'data' / 'round-history.json')
+history_lock = threading.Lock()
 WALLPAPER_STORE = Path.home() / 'Library' / 'Application Support' / 'com.apple.wallpaper'
 
 
@@ -42,16 +46,45 @@ def configuration():
         'models': model_catalog(discover=not app.config['TEST_MODE']),
     })
 
-@app.route('/api/match-history')
-def match_history():
-    """Read the global archive. Playing a match never writes to this file."""
+def read_round_history():
+    """All saved rounds. A missing file is an empty history; a damaged one raises ValueError and is left untouched."""
     try:
         archive = json.loads(MATCH_HISTORY_PATH.read_text())
-        if not isinstance(archive, dict) or not isinstance(archive.get('matches'), list) or not all(isinstance(match, dict) for match in archive['matches']):
-            raise ValueError('Invalid match archive')
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        return []
+    except OSError as error:
+        raise ValueError('Round history is unreadable') from error
+    if not isinstance(archive, dict) or not isinstance(archive.get('rounds'), list) or not all(isinstance(entry, dict) for entry in archive['rounds']):
+        raise ValueError('Invalid round history')
+    return archive['rounds']
+
+
+def save_round(entry):
+    """Append one finished round, writing the file atomically so a crash never leaves it half-written."""
+    with history_lock:
+        try:
+            rounds = read_round_history()
+        except ValueError:
+            app.logger.warning('Round history at %s is damaged; this round was not saved.', MATCH_HISTORY_PATH)
+            return
+        MATCH_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temporary = MATCH_HISTORY_PATH.with_suffix('.tmp')
+        temporary.write_text(json.dumps({'rounds': rounds + [entry]}, indent=2) + '\n')
+        os.replace(temporary, MATCH_HISTORY_PATH)
+
+
+@app.route('/api/match-history')
+def match_history():
+    """Saved rounds from every real match, plus the all-time tally of rounds won."""
+    try:
+        rounds = read_round_history()
+    except ValueError:
         return jsonify({'error': 'Match history is unavailable.'}), 503
-    response = jsonify({'matches': archive['matches']})
+    totals = {'gpt': 0, 'claude': 0, 'draw': 0}
+    for entry in rounds:
+        if entry.get('winner') in totals:
+            totals[entry['winner']] += 1
+    response = jsonify({'rounds': rounds, 'totals': totals})
     response.cache_control.no_store = True
     return response
 
@@ -191,6 +224,7 @@ def start_games():
     state.update(selected)
     state['started'] = True
     state['total_games'] = num_games
+    state['match_id'] = uuid.uuid4().hex[:12]
     session['game_state'] = state
     
     return jsonify({
@@ -275,6 +309,25 @@ def next_move():
             'gpt_time': state['gpt_total_time'],
             'claude_time': state['claude_total_time']
         })
+        # Real rounds count toward the all-time history the moment they end; Test mode never does.
+        if mode != 'test':
+            profiles = player_profiles(mode, state)
+            save_round({
+                'match_id': state.get('match_id'),
+                'round': state['current_game'],
+                'rounds_total': state['total_games'],
+                'finished_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
+                'mode': mode,
+                'gpt_name': profiles['gpt']['name'],
+                'claude_name': profiles['claude']['name'],
+                'gpt_effort': state.get('gpt_effort', 'default'),
+                'claude_effort': state.get('claude_effort', 'default'),
+                'starter': 'gpt' if state.get('round_starter') == state['gpt_mark'] else 'claude',
+                'winner': 'draw' if result == 'draw' else model,
+                'moves': sum(value != '.' for value in state['board'].values()),
+                'gpt_time': state['gpt_total_time'],
+                'claude_time': state['claude_total_time'],
+            })
     else:
         # Switch turns
         state['current_turn'] = 'O' if current_turn == 'X' else 'X'

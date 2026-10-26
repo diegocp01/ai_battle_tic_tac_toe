@@ -284,10 +284,12 @@ test('quiet side panels flank the board; the only bottom section is global histo
     expect(errors).toEqual([]);
 });
 
-test('history reads the global archive rather than completed rounds and safely renders text', async ({ page }) => {
-    await page.route('**/api/match-history', route => route.fulfill({json: {matches: [{
-        finished_at: '2026-10-20 10:00', gpt_name: '<img src=x onerror=alert(1)>', claude_name: 'Archive Claude', rounds: 3, result: 'Draw',
-    }]}}));
+test('history groups saved rounds into matches, shows all-time totals, and safely renders text', async ({ page }) => {
+    const saved = {match_id: 'a1', rounds_total: 3, finished_at: '2026-10-20 10:00', gpt_name: '<img src=x onerror=alert(1)>', claude_name: 'Archive Claude'};
+    await page.route('**/api/match-history', route => route.fulfill({json: {
+        rounds: [{...saved, round: 1, winner: 'gpt'}, {...saved, round: 2, winner: 'draw'}],
+        totals: {gpt: 7, claude: 4, draw: 2},
+    }}));
     await ready(page);
     await start(page, '2');
     await expect(page.locator('#session-title')).toHaveText('Series complete');
@@ -295,6 +297,11 @@ test('history reads the global archive rather than completed rounds and safely r
     await page.locator('#history > summary').click();
     await expect(page.locator('#stats-body tr')).toHaveCount(1);
     await expect(page.locator('#stats-body')).toContainText('Archive Claude');
+    await expect(page.locator('#stats-body')).toContainText('2 of 3');
+    await expect(page.locator('#stats-body')).toContainText('1–0 · 1 draw');
+    await expect(page.locator('#overall-gpt')).toHaveText('7');
+    await expect(page.locator('#overall-claude')).toHaveText('4');
+    await expect(page.locator('#overall-draw')).toHaveText('2');
     await expect(page.locator('#stats-body')).toContainText('<img src=x onerror=alert(1)>');
     await expect(page.locator('#stats-body img')).toHaveCount(0);
     await page.click('#btn-new');

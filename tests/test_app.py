@@ -25,6 +25,11 @@ class ArenaTests(unittest.TestCase):
         self.local.start()
         self.api.start()
         self.addCleanup(patch.stopall)
+        # Every test gets its own empty round history; the real one is never touched.
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.history = Path(folder.name, 'round-history.json')
+        patch('app.MATCH_HISTORY_PATH', self.history).start()
 
     def start(self, mode='test', games=1):
         return self.client.post('/api/start-games', json={'mode': mode, 'num_games': games})
@@ -178,45 +183,54 @@ class ArenaTests(unittest.TestCase):
         response = self.client.post('/api/start-games', json={'mode': 'local'}, headers={'Origin': 'https://example.com'})
         self.assertEqual(response.status_code, 403)
 
-    def test_completed_series_never_writes_the_global_archive(self):
-        with tempfile.TemporaryDirectory() as directory:
-            archive = Path(directory, 'match-history.json')
-            original = '{"matches": []}\n'
-            archive.write_text(original)
-            with patch('app.MATCH_HISTORY_PATH', archive):
-                self.assertEqual(self.client.get('/api/match-history').json, {'matches': []})
-                self.start(games=2)
-                for game in range(2):
-                    while not self.client.post('/api/next-move').json['game_state']['game_over']:
-                        pass
-                    if game == 0:
-                        self.client.post('/api/next-game')
-                self.assertEqual(self.client.get('/api/match-history').json, {'matches': []})
-                self.client.post('/api/reset')
-                self.start()
-                self.assertEqual(archive.read_text(), original)
-                self.assertEqual(self.client.post('/api/match-history', json={}).status_code, 405)
+    @staticmethod
+    def first_empty_square(mode, model, prompt, board, **settings):
+        return next(coord for coord in board if board[coord] == '.'), 'Fixture move'
 
-    def test_archive_is_global_and_read_from_json_without_mutation(self):
-        with tempfile.TemporaryDirectory() as directory:
-            archive = Path(directory, 'match-history.json')
-            payload = {'matches': [{'gpt_name': 'Archived Codex', 'claude_name': 'Archived Claude', 'rounds': 3, 'result': 'Draw'}]}
-            archive.write_text(json.dumps(payload))
-            with patch('app.MATCH_HISTORY_PATH', archive):
-                self.assertEqual(self.client.get('/api/match-history').json, payload)
-                self.assertEqual(app.test_client().get('/api/match-history').json, payload)
-                archive.write_text('{"matches": []}')
-                self.assertEqual(self.client.get('/api/match-history').json, {'matches': []})
+    def play_round(self):
+        with patch('app.choose_move', side_effect=self.first_empty_square):
+            while not self.client.post('/api/next-move').json['game_state']['game_over']:
+                pass
 
-    def test_missing_or_malformed_history_is_a_read_error(self):
-        with tempfile.TemporaryDirectory() as directory:
-            archive = Path(directory, 'match-history.json')
-            with patch('app.MATCH_HISTORY_PATH', archive):
-                self.assertEqual(self.client.get('/api/match-history').status_code, 503)
-                for invalid in ['not JSON', '[]', '{"matches": {}}', '{"matches": ["bad"]}']:
-                    archive.write_text(invalid)
-                    self.assertEqual(self.client.get('/api/match-history').status_code, 503)
-                    self.assertEqual(archive.read_text(), invalid)
+    def test_test_mode_rounds_are_never_saved(self):
+        empty = {'rounds': [], 'totals': {'gpt': 0, 'claude': 0, 'draw': 0}}
+        self.assertEqual(self.client.get('/api/match-history').json, empty)
+        self.start(games=2)
+        for game in range(2):
+            self.play_out_game()
+            if game == 0:
+                self.client.post('/api/next-game')
+        self.assertFalse(self.history.exists())
+        self.assertEqual(self.client.get('/api/match-history').json, empty)
+        self.assertEqual(self.client.post('/api/match-history', json={}).status_code, 405)
+
+    def test_real_rounds_are_saved_as_each_round_ends_and_counted_all_time(self):
+        self.start('local', games=2)
+        self.play_round()
+        saved = json.loads(self.history.read_text())['rounds']
+        self.assertEqual(len(saved), 1)
+        first = saved[0]
+        self.assertEqual((first['round'], first['rounds_total'], first['mode']), (1, 2, 'local'))
+        self.assertEqual(first['winner'], first['starter'])
+        self.client.post('/api/next-game')
+        self.play_round()
+        history = self.client.get('/api/match-history').json
+        self.assertEqual([entry['round'] for entry in history['rounds']], [1, 2])
+        self.assertEqual(len({entry['match_id'] for entry in history['rounds']}), 1)
+        self.assertEqual(history['totals'], {'gpt': 1, 'claude': 1, 'draw': 0})
+        self.start('local')
+        self.play_round()
+        history = self.client.get('/api/match-history').json
+        self.assertEqual(len({entry['match_id'] for entry in history['rounds']}), 2)
+        self.assertEqual(sum(history['totals'].values()), 3)
+
+    def test_damaged_history_is_reported_and_never_overwritten(self):
+        for invalid in ['not JSON', '[]', '{"rounds": {}}', '{"rounds": ["bad"]}']:
+            self.history.write_text(invalid)
+            self.assertEqual(self.client.get('/api/match-history').status_code, 503)
+            self.start('local')
+            self.play_round()
+            self.assertEqual(self.history.read_text(), invalid)
 
 
 class AdapterTests(unittest.TestCase):

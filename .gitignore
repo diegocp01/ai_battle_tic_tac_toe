@@ -18,3 +18,7 @@ __pycache__/
 node_modules/
 test-results/
 playwright-report/
+
+# Local round history written by the app
+data/round-history.json
+data/round-history.tmp
