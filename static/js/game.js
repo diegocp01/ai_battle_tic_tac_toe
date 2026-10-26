@@ -59,6 +59,14 @@ function selectedModel(key) {
     return configuration?.models[$('play-mode').value]?.[key]?.models.find(model => model.id === $(key + '-model').value);
 }
 
+const pieceShapes = {X: '<path d="M12 12 52 52M52 12 12 52"/>', O: '<circle cx="32" cy="32" r="21"/>'};
+
+// Stacked strokes make a raised neon tube: a dark extrusion underneath, the colored body, a hot core and a top highlight.
+function pieceMarkup(mark) {
+    const layers = ['depth', 'bevel', 'body', 'core', 'shine'].map(layer => `<g class="piece-${layer}">${pieceShapes[mark]}</g>`);
+    return `<svg class="piece" viewBox="0 0 64 64" aria-hidden="true">${layers.join('')}</svg>`;
+}
+
 function readEffort(key) {
     return effortLevels[key][Number($(key + '-effort').value)] || 'default';
 }
@@ -70,6 +78,7 @@ function updateEffortLabel(key) {
         : $('play-mode').value === 'test' ? 'Not used' : !selectedModel(key) ? 'Unavailable'
         : 'Not supported';
     $(key + '-effort').setAttribute('aria-valuetext', $(key + '-effort-value').textContent);
+    $(key + '-effort').style.setProperty('--fill', Number($(key + '-effort').value) / (Number($(key + '-effort').max) || 1));
     for (const [index, tick] of [...$(key + '-effort-ticks').children].entries()) {
         tick.classList.toggle('is-selected', index === Number($(key + '-effort').value));
     }
@@ -209,9 +218,7 @@ function renderBoard(current) {
             cell.classList.add(value);
             if (previous !== value) cell.classList.add('new-move');
             // Only fixed SVG markup is inserted; all model text uses textContent.
-            cell.innerHTML = value === 'X'
-                ? '<svg class="piece" viewBox="0 0 48 48" aria-hidden="true"><path d="m9 9 30 30M39 9 9 39"/></svg>'
-                : '<svg class="piece" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="17"/></svg>';
+            cell.innerHTML = pieceMarkup(value);
         } else {
             cell.innerHTML = '<span class="cell-placeholder" aria-hidden="true"></span>';
         }
@@ -243,7 +250,29 @@ function renderProfiles(profiles) {
         $(model + '-provider').textContent = provider;
         $(model + '-mode').textContent = connection === provider ? '' : connection;
         $(model + '-stats').setAttribute('aria-label', names[model] + ' results');
+        $(model + '-score').setAttribute('aria-label', names[model] + ' rounds won');
     }
+}
+
+// Fighting-game style scoreboard: each side's rounds won, plus one marker per round showing who took it.
+function renderScoreboard(current) {
+    const won = {gpt: 0, claude: 0};
+    for (const round of current.game_history) if (round.winner_model) won[round.winner_model]++;
+    for (const model of Object.keys(names)) {
+        $(model + '-score').textContent = won[model];
+        $(model + '-score').closest('.score-side').classList.toggle('is-leading', won[model] > won[model === 'gpt' ? 'claude' : 'gpt']);
+    }
+    const pips = [];
+    for (let round = 1; round <= current.total_games; round++) {
+        const played = current.game_history.find(entry => entry.game === round);
+        const result = played ? played.winner_model || 'draw' : round === current.current_game && !current.all_games_complete ? 'current' : 'pending';
+        const pip = document.createElement('span');
+        pip.className = 'pip';
+        pip.dataset.result = result;
+        pip.title = 'Round ' + round + ': ' + ({gpt: names.gpt + ' won', claude: names.claude + ' won', draw: 'Draw', current: 'In play', pending: 'Not played'})[result];
+        pips.push(pip);
+    }
+    $('round-pips').replaceChildren(...pips);
 }
 
 function renderMode(selected) {
@@ -263,6 +292,7 @@ function render(current) {
     $('game-counter').classList.remove('hidden');
     $('game-number').textContent = current.current_game;
     $('total-games').textContent = current.total_games;
+    renderScoreboard(current);
     renderBoard(current);
     for (const model of Object.keys(names)) {
         const mark = current[model + '_mark'];
@@ -451,4 +481,25 @@ async function restoreSession() {
         } else setMode('idle');
     } catch (error) { showError(error); }
 }
+
+// The Mac's own aerial wallpaper plays behind the glass when it can; otherwise the still image stays.
+function startLiveWallpaper() {
+    const video = $('wallpaper-video');
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return video.remove();
+    video.addEventListener('playing', () => document.documentElement.classList.add('live-wallpaper'), {once: true});
+    video.addEventListener('error', () => video.remove(), {once: true});
+    video.src = video.dataset.src;
+    video.play().catch(() => {});
+}
+startLiveWallpaper();
+
+// Liquid Glass controls catch light where the pointer is.
+document.addEventListener('pointermove', event => {
+    const glass = event.target.closest?.('.button, select');
+    if (!glass) return;
+    const box = glass.getBoundingClientRect();
+    glass.style.setProperty('--mx', `${event.clientX - box.left}px`);
+    glass.style.setProperty('--my', `${event.clientY - box.top}px`);
+}, {passive: true});
+
 restoreSession();

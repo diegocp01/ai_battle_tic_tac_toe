@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "arena",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["app.py", "--port", "5001"],
+      "port": 5001,
+      "url": "http://127.0.0.1:5001"
+    }
+  ]
+}
