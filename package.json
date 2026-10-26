@@ -1,0 +1,20 @@
+{
+  "name": "ai-battle-tic-tac-toe",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local CLI and API adapters for AI Arena",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "test:ui": "playwright test"
+  },
+  "dependencies": {
+    "@openai/codex-sdk": "0.164.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1"
+  }
+}

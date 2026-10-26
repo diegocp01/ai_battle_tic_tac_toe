@@ -3,7 +3,6 @@ import anthropic
 from dotenv import load_dotenv
 
 load_dotenv()
-client = anthropic.Anthropic()
 
 SYSTEM_PROMPT = """
 You are a Tic Tac Toe move generator.
@@ -37,7 +36,8 @@ def call_claude(user_prompt: str) -> tuple[str, str | None]:
     """
 
     # If you don't want thinking summaries, remove `thinking=...`
-    response = client.beta.messages.create(
+    client = anthropic.Anthropic()
+    response = client.messages.create(
         model="claude-opus-4-5-20251101",  # use the exact model you have access to
         max_tokens=2048,
 
@@ -47,17 +47,14 @@ def call_claude(user_prompt: str) -> tuple[str, str | None]:
             "budget_tokens": 1024,  # must be >= 1024
         },
 
-        betas=["structured-outputs-2025-11-13"],
-
         # System + user, same idea as OpenAI
         system=SYSTEM_PROMPT,
         messages=[
             {"role": "user", "content": user_prompt}
         ],
 
-        output_format={
-            "type": "json_schema",
-            "schema": MOVE_SCHEMA
+        output_config={
+            "format": {"type": "json_schema", "schema": MOVE_SCHEMA}
         }
     )
 

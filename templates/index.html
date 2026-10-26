@@ -1,196 +1,96 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tic Tac Toe: GPT vs Claude</title>
+    <meta name="theme-color" content="#f5f5f7">
+    <meta name="description" content="Two AI models. Nine squares. Watch Codex and Claude play tic-tac-toe, one decision at a time.">
+    <title>AI Arena — Tic-tac-toe</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%231d1d1f'/%3E%3Cpath d='M20 20l24 24m0-24L20 44' stroke='white' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="/static/css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="/static/js/game.js" defer></script>
 </head>
-
 <body>
-    <!-- Modal for selecting number of games -->
-    <div id="modal-overlay" class="modal-overlay">
-        <div class="modal">
-            <div class="modal-glow"></div>
-            <h2>🎮 AI Battle Arena</h2>
-            <p>GPT 5.2 High vs Claude Opus 4.5 Thinking</p>
-            <label for="game-count">How many games to run?</label>
-            <select id="game-count">
-                <option value="1">1 Game</option>
-                <option value="2">2 Games</option>
-                <option value="3" selected>3 Games</option>
-                <option value="4">4 Games</option>
-                <option value="5">5 Games</option>
-                <option value="6">6 Games</option>
-                <option value="7">7 Games</option>
-                <option value="8">8 Games</option>
-                <option value="9">9 Games</option>
-                <option value="10">10 Games</option>
-            </select>
-            <button id="btn-run" class="btn-run">Run Games</button>
-        </div>
-    </div>
+    <a class="skip-link" href="#arena">Skip to arena</a>
+    <header class="site-header">
+        <nav class="nav" aria-label="Main navigation">
+            <a class="brand" href="/" aria-label="AI Arena home"><span class="brand-symbol" aria-hidden="true">✳</span> AI Arena<span class="brand-divider"></span><span class="brand-game">Tic-tac-toe</span></a>
+            <a class="nav-link" href="#history">Match history <span aria-hidden="true">↗</span></a>
+        </nav>
+    </header>
 
-    <!-- Main game area -->
-    <div id="game-container" class="game-container hidden">
-        <div class="game-header">
-            <h1>Game <span id="game-number">1</span> of <span id="total-games">3</span></h1>
-        </div>
+    <main class="shell">
+        <section class="intro" aria-labelledby="page-title">
+            <div class="eyebrow"><span></span> A LITTLE GAME. A LOT OF THINKING.</div>
+            <h1 id="page-title">Great minds.<br><span>Small board.</span></h1>
+            <p>Two AI models. Nine squares. Watch every decision unfold.</p>
+        </section>
 
-        <div class="game-area">
-            <!-- GPT Panel (Left) -->
-            <div class="model-panel gpt-panel">
-                <div class="model-header">
-                    <img src="/static/img/openai.webp" alt="OpenAI" class="model-icon">
-                    <h2>GPT 5.2 High</h2>
-                </div>
-                <div id="gpt-thinking" class="thinking-bubble hidden">
-                    <span class="dot"></span>
-                    <span class="dot"></span>
-                    <span class="dot"></span>
-                    <span>Thinking...</span>
-                    <span id="gpt-timer" class="timer">0.0s</span>
-                </div>
-                <div class="model-mark">
-                    Playing as: <span id="gpt-mark" class="mark">X</span>
-                </div>
-                <div class="timing-info">
-                    <div class="time-stat">
-                        <span class="time-label">Last move:</span>
-                        <span id="gpt-last-time" class="time-value">0.0s</span>
-                    </div>
-                    <div class="time-stat">
-                        <span class="time-label">Total time:</span>
-                        <span id="gpt-total-time" class="time-value">0.0s</span>
-                    </div>
-                </div>
-                <div class="stats-box">
-                    <div class="stat">
-                        <span class="stat-value" id="gpt-wins">0</span>
-                        <span class="stat-label">Wins</span>
-                    </div>
-                    <div class="stat">
-                        <span class="stat-value" id="gpt-losses">0</span>
-                        <span class="stat-label">Losses</span>
-                    </div>
-                    <div class="stat">
-                        <span class="stat-value" id="gpt-draws">0</span>
-                        <span class="stat-label">Draws</span>
-                    </div>
-                </div>
-                <div class="last-move-box">
-                    <span class="last-move-label">Last Move:</span>
-                    <span id="gpt-last-move" class="last-move-value">—</span>
-                </div>
-                <div class="reasoning-box">
-                    <h3>💭 Reasoning</h3>
-                    <div id="gpt-reasoning" class="reasoning-text">Waiting for move...</div>
+        <section id="arena" class="arena" aria-label="AI match arena" tabindex="-1">
+            <div class="arena-toolbar">
+                <div class="session-heading"><span id="session-indicator" class="status-dot"></span><h2 id="session-title">Ready when you are</h2><span id="game-counter" class="game-counter hidden">Game <b id="game-number">1</b> of <b id="total-games">3</b></span></div>
+                <div class="match-controls">
+                    <label for="game-count">Series length</label>
+                    <select id="game-count" aria-label="Series length">
+                        {% for count in range(1, 11) %}<option value="{{ count }}" {% if count == 3 %}selected{% endif %}>{{ count }} game{{ 's' if count != 1 else '' }}</option>{% endfor %}
+                    </select>
+                    <button id="btn-pause" class="button secondary hidden" type="button">Pause</button>
+                    <button id="btn-run" class="button primary" type="button"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M5 3.5 12 8l-7 4.5z" fill="currentColor"/></svg><span>Start match</span></button>
                 </div>
             </div>
-
-            <!-- Board (Center) -->
-            <div class="board-container">
-                <div class="board-wrapper">
-                    <div class="board-labels-top">
-                        <span>A</span>
-                        <span>B</span>
-                        <span>C</span>
+            <div class="mode-bar">
+                <div class="mode-choice"><label for="play-mode">Play with</label><select id="play-mode" aria-describedby="mode-description"><option value="local">Local CLIs</option><option value="api">API keys</option><option value="test">Test</option></select></div>
+                <p id="mode-description">Uses your signed-in Codex and Claude CLIs. No API keys needed.</p>
+                <span id="test-badge" class="test-badge hidden">Test · no LLM calls</span>
+            </div>
+            <div id="error-message" class="error-banner hidden" role="alert"></div>
+            <div class="game-area">
+                {% for model, provider, name, mode, mark in [('gpt', 'OpenAI', 'Codex', 'Codex SDK · CLI default model', 'X'), ('claude', 'Anthropic', 'Claude', 'Claude CLI · CLI default model', 'O')] %}
+                <article class="model-panel {{ model }}-panel" id="{{ model }}-panel" aria-labelledby="{{ model }}-name">
+                    <div class="model-heading">
+                        <div class="model-icon {{ model }}-icon" aria-hidden="true">{% if model == 'gpt' %}<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.65"><path d="M16 4 26.4 10v12L16 28 5.6 22V10Z"/><path d="m16 4 0 12 10.4 6M5.6 10 16 16v12m10.4-18L16 16 5.6 22"/></svg>{% else %}<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 3v26M3 16h26M6.8 6.8l18.4 18.4m0-18.4L6.8 25.2M11 4l10 24M4 11l24 10M21 4 11 28M4 21l24-10"/></svg>{% endif %}</div>
+                        <span class="provider" id="{{ model }}-provider">{{ provider }}</span>
+                        <span id="{{ model }}-mark" class="mark unassigned" aria-label="Mark assigned when match starts">—</span>
                     </div>
-                    <div class="board-with-rows">
-                        <div class="board-labels-left">
-                            <span>1</span>
-                            <span>2</span>
-                            <span>3</span>
-                        </div>
-                        <div id="board" class="board">
-                            <div class="cell" data-coord="A1"></div>
-                            <div class="cell" data-coord="B1"></div>
-                            <div class="cell" data-coord="C1"></div>
-                            <div class="cell" data-coord="A2"></div>
-                            <div class="cell" data-coord="B2"></div>
-                            <div class="cell" data-coord="C2"></div>
-                            <div class="cell" data-coord="A3"></div>
-                            <div class="cell" data-coord="B3"></div>
-                            <div class="cell" data-coord="C3"></div>
+                    <h2 id="{{ model }}-name">{{ name }}</h2>
+                    <p id="{{ model }}-mode" class="model-mode">{{ mode }}</p>
+                    <div class="model-state"><span id="{{ model }}-idle">Waiting to begin</span><span id="{{ model }}-thinking" class="thinking-bubble hidden"><span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span>Thinking<span id="{{ model }}-timer" class="timer">0.0s</span></span></div>
+                    <div class="stats-box" aria-label="{{ name }} results">
+                        <div><span id="{{ model }}-wins" class="stat-value">0</span><span class="stat-label">Wins</span></div>
+                        <div><span id="{{ model }}-draws" class="stat-value">0</span><span class="stat-label">Draws</span></div>
+                        <div><span id="{{ model }}-losses" class="stat-value">0</span><span class="stat-label">Losses</span></div>
+                    </div>
+                    <dl class="timing-info"><div><dt>Last move</dt><dd id="{{ model }}-last-move">—</dd></div><div><dt>Move time</dt><dd id="{{ model }}-last-time">—</dd></div><div><dt>Game time</dt><dd id="{{ model }}-total-time">—</dd></div></dl>
+                    <details class="reasoning-box" open><summary>Behind the move <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"/></svg></summary><div id="{{ model }}-reasoning" class="reasoning-text">Every move has a reason. See the model’s explanation here as it plays.</div></details>
+                </article>
+                {% endfor %}
+
+                <div class="board-container">
+                    <div class="board-kicker"><span class="tiny-grid" aria-hidden="true">▦</span> THE PLAYING FIELD</div>
+                    <div class="board-wrapper">
+                        <div class="board-labels-top" aria-hidden="true"><span>A</span><span>B</span><span>C</span></div>
+                        <div class="board-with-rows">
+                            <div class="board-labels-left" aria-hidden="true"><span>1</span><span>2</span><span>3</span></div>
+                            <div id="board" class="board" role="group" aria-label="Tic-tac-toe board. Waiting for match.">
+                                {% for coord in ['A1','B1','C1','A2','B2','C2','A3','B3','C3'] %}<div class="cell" role="img" data-coord="{{ coord }}" aria-label="{{ coord }}: empty"><span class="cell-placeholder" aria-hidden="true"></span></div>{% endfor %}
+                            </div>
                         </div>
                     </div>
-                </div>
-                <div id="game-status" class="game-status"></div>
-            </div>
-
-            <!-- Claude Panel (Right) -->
-            <div class="model-panel claude-panel">
-                <div class="model-header">
-                    <img src="/static/img/anthropic.jpeg" alt="Anthropic" class="model-icon">
-                    <h2>Claude Opus 4.5 Thinking</h2>
-                </div>
-                <div id="claude-thinking" class="thinking-bubble hidden">
-                    <span class="dot"></span>
-                    <span class="dot"></span>
-                    <span class="dot"></span>
-                    <span>Thinking...</span>
-                    <span id="claude-timer" class="timer">0.0s</span>
-                </div>
-                <div class="model-mark">
-                    Playing as: <span id="claude-mark" class="mark">O</span>
-                </div>
-                <div class="timing-info">
-                    <div class="time-stat">
-                        <span class="time-label">Last move:</span>
-                        <span id="claude-last-time" class="time-value">0.0s</span>
-                    </div>
-                    <div class="time-stat">
-                        <span class="time-label">Total time:</span>
-                        <span id="claude-total-time" class="time-value">0.0s</span>
-                    </div>
-                </div>
-                <div class="stats-box">
-                    <div class="stat">
-                        <span class="stat-value" id="claude-wins">0</span>
-                        <span class="stat-label">Wins</span>
-                    </div>
-                    <div class="stat">
-                        <span class="stat-value" id="claude-losses">0</span>
-                        <span class="stat-label">Losses</span>
-                    </div>
-                    <div class="stat">
-                        <span class="stat-value" id="claude-draws">0</span>
-                        <span class="stat-label">Draws</span>
-                    </div>
-                </div>
-                <div class="last-move-box">
-                    <span class="last-move-label">Last Move:</span>
-                    <span id="claude-last-move" class="last-move-value">—</span>
-                </div>
-                <div class="reasoning-box">
-                    <h3>💭 Reasoning</h3>
-                    <div id="claude-reasoning" class="reasoning-text">Waiting for move...</div>
+                    <div class="board-status"><div id="game-status" role="status" aria-live="polite">The next move is yours.</div><p id="status-detail">Choose your series length and start a match.</p></div>
+                    <div class="board-legend"><span><i class="legend-x">×</i> First to move</span><span><i class="legend-o">○</i> A worthy opponent</span></div>
                 </div>
             </div>
-        </div>
-    </div>
+            <div class="arena-footer"><span><svg aria-hidden="true" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 7v4M8 4.5v.5"/></svg> Marks are randomly assigned each game. X goes first.</span><span id="series-progress-text">Make room for a little competition.</span><progress id="series-progress" value="0" max="3" class="hidden" aria-label="Series progress"></progress></div>
+        </section>
 
-    <!-- Stats Table Section -->
-    <div id="stats-section" class="stats-section hidden">
-        <h2>📊 Game History</h2>
-        <table id="stats-table" class="stats-table">
-            <thead>
-                <tr>
-                    <th>Game #</th>
-                    <th>Time</th>
-                    <th>Winner</th>
-                    <th>GPT Time (s)</th>
-                    <th>Claude Time (s)</th>
-                </tr>
-            </thead>
-            <tbody id="stats-body">
-            </tbody>
-        </table>
-    </div>
-
-    <script src="/static/js/game.js"></script>
+        <section id="history" class="history-section" aria-labelledby="history-title">
+            <div class="section-heading"><div><h2 id="history-title">Match history</h2><p>A play-by-play, minus the guesswork.</p></div><span id="history-count" class="count-badge">0 games</span></div>
+            <div class="history-card">
+                <div id="history-empty" class="history-empty"><span class="history-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 6h14v14H5zM8 3v6m8-6v6M5 10h14m-10 4h6m-6 3h4"/></svg></span><div><h3>A fresh start.</h3><p>Completed games will appear here. Let the best model win.</p></div></div>
+                <div id="history-table-wrap" class="table-wrap hidden" tabindex="0" role="region" aria-label="Completed games"><table class="stats-table"><thead><tr><th scope="col">Game</th><th scope="col">Finished at</th><th scope="col">Result</th><th id="gpt-time-heading" scope="col">Codex time</th><th id="claude-time-heading" scope="col">Claude time</th></tr></thead><tbody id="stats-body"></tbody></table></div>
+            </div>
+        </section>
+        <footer class="page-footer"><span>Built for curiosity.</span><span><span id="matchup-label">Codex × Claude</span> <span class="footer-dot">·</span> Tic-tac-toe, reimagined.</span></footer>
+    </main>
 </body>
-
 </html>

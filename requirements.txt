@@ -2,4 +2,4 @@ openai
 pydantic
 python-dotenv
 anthropic
-flask
+flask>=3.1,<4

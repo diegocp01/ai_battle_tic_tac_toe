@@ -2,7 +2,6 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 load_dotenv()
-client = OpenAI()
 
 # Structured response template
 class GameAnswer(BaseModel):
@@ -11,6 +10,7 @@ class GameAnswer(BaseModel):
 
 # Function to call ChatGPT
 def call_chatgpt(user_prompt: str) -> tuple[str, str | None]:
+    client = OpenAI()
     response = client.responses.parse(
         model="gpt-5.2",
         input=[

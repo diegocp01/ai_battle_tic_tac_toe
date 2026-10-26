@@ -1,273 +1,294 @@
-// DOM Elements
-const modalOverlay = document.getElementById('modal-overlay');
-const gameCountSelect = document.getElementById('game-count');
-const btnRun = document.getElementById('btn-run');
-const gameContainer = document.getElementById('game-container');
-const statsSection = document.getElementById('stats-section');
+'use strict';
 
-// Game state display elements
-const gameNumberEl = document.getElementById('game-number');
-const totalGamesEl = document.getElementById('total-games');
-const boardEl = document.getElementById('board');
-const gameStatusEl = document.getElementById('game-status');
+const $ = (id) => document.getElementById(id);
+const names = { gpt: 'Codex', claude: 'Claude' };
+let configuration = null;
+const winningLines = [
+    ['A1', 'B1', 'C1'], ['A2', 'B2', 'C2'], ['A3', 'B3', 'C3'],
+    ['A1', 'A2', 'A3'], ['B1', 'B2', 'B3'], ['C1', 'C2', 'C3'],
+    ['A1', 'B2', 'C3'], ['C1', 'B2', 'A3']
+];
+let mode = 'loading';
+let state = null;
+let loopActive = false;
+let timer = null;
+let renderedGame = null;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// GPT elements
-const gptThinkingEl = document.getElementById('gpt-thinking');
-const gptMarkEl = document.getElementById('gpt-mark');
-const gptWinsEl = document.getElementById('gpt-wins');
-const gptLossesEl = document.getElementById('gpt-losses');
-const gptDrawsEl = document.getElementById('gpt-draws');
-const gptReasoningEl = document.getElementById('gpt-reasoning');
-const gptTimerEl = document.getElementById('gpt-timer');
-const gptLastTimeEl = document.getElementById('gpt-last-time');
-const gptTotalTimeEl = document.getElementById('gpt-total-time');
-
-// Claude elements
-const claudeThinkingEl = document.getElementById('claude-thinking');
-const claudeMarkEl = document.getElementById('claude-mark');
-const claudeWinsEl = document.getElementById('claude-wins');
-const claudeLossesEl = document.getElementById('claude-losses');
-const claudeDrawsEl = document.getElementById('claude-draws');
-const claudeReasoningEl = document.getElementById('claude-reasoning');
-const claudeTimerEl = document.getElementById('claude-timer');
-const claudeLastTimeEl = document.getElementById('claude-last-time');
-const claudeTotalTimeEl = document.getElementById('claude-total-time');
-const gptLastMoveEl = document.getElementById('gpt-last-move');
-const claudeLastMoveEl = document.getElementById('claude-last-move');
-
-// Stats table
-const statsBody = document.getElementById('stats-body');
-
-// Game state
-let isRunning = false;
-let timerInterval = null;
-let timerStartTime = null;
-let currentTimerEl = null;
-
-// Initialize
-btnRun.addEventListener('click', startGames);
-
-function startTimer(timerEl) {
-    stopTimer();
-    timerStartTime = Date.now();
-    currentTimerEl = timerEl;
-    timerEl.textContent = '0.0s';
-
-    timerInterval = setInterval(() => {
-        const elapsed = (Date.now() - timerStartTime) / 1000;
-        timerEl.textContent = elapsed.toFixed(1) + 's';
-    }, 100);
+function setStatus(title, detail) {
+    $('game-status').textContent = title;
+    $('status-detail').textContent = detail;
 }
 
-function stopTimer() {
-    if (timerInterval) {
-        clearInterval(timerInterval);
-        timerInterval = null;
+function setMode(next) {
+    mode = next;
+    const active = ['running', 'pausing'].includes(mode);
+    const resumable = state && !state.all_games_complete;
+    const locked = ['loading', 'starting', 'running', 'pausing', 'paused'].includes(mode) || (mode === 'error' && resumable);
+    $('game-count').disabled = Boolean(locked);
+    $('play-mode').disabled = Boolean((locked && mode !== 'error') || configuration?.test_only);
+    $('btn-run').classList.toggle('hidden', active);
+    $('btn-run').disabled = ['loading', 'starting'].includes(mode);
+    $('btn-run').querySelector('span').textContent = ({ loading: 'Connecting…', starting: 'Starting…', paused: 'Resume match', error: resumable ? 'Retry match' : 'Try again', complete: 'New match' })[mode] || 'Start match';
+    $('btn-pause').classList.toggle('hidden', !active);
+    $('btn-pause').disabled = mode === 'pausing';
+    $('btn-pause').textContent = mode === 'pausing' ? 'Pausing…' : 'Pause';
+    $('session-title').textContent = ({ loading: 'Connecting to arena', idle: 'Ready when you are', starting: 'Setting the board', running: 'Match in progress', pausing: 'Finishing this turn', paused: 'Match paused', error: 'Match interrupted', complete: 'Series complete' })[mode];
+    $('session-indicator').className = 'status-dot ' + mode;
+}
+
+async function request(path, options = {}) {
+    const response = await fetch('/api/' + path, options);
+    let data;
+    try {
+        data = await response.json();
+    } catch {
+        throw new Error('The server returned an unexpected response. Check that the app is running, then try again.');
+    }
+    if (!response.ok || data.success === false || data.error) {
+        throw new Error(data.error || 'The request could not be completed. Please try again.');
+    }
+    return data;
+}
+
+function showError(error) {
+    $('error-message').textContent = error.message || 'Connection lost. Check that the app is running, then try again.';
+    $('error-message').classList.remove('hidden');
+    setMode('error');
+    setStatus('Let’s try that again.', state ? 'Your board is saved. Retry to continue the match.' : 'Check your connection and API setup, then try again.');
+}
+
+function clearThinking() {
+    clearInterval(timer);
+    timer = null;
+    for (const model of Object.keys(names)) {
+        $(model + '-thinking').classList.add('hidden');
+        $(model + '-idle').classList.remove('hidden');
+        $(model + '-panel').classList.remove('is-thinking');
+    }
+}
+
+function showThinking(model) {
+    clearThinking();
+    $(model + '-thinking').classList.remove('hidden');
+    $(model + '-idle').classList.add('hidden');
+    $(model + '-panel').classList.add('is-thinking');
+    $(model + '-timer').textContent = '0.0s';
+    const start = performance.now();
+    timer = setInterval(() => {
+        $(model + '-timer').textContent = ((performance.now() - start) / 1000).toFixed(1) + 's';
+    }, 100);
+    setStatus(names[model] + ' is thinking.', 'A little patience. A considered move.');
+}
+
+function renderBoard(current) {
+    const line = winningLines.find((coords) => current.winner && current.winner !== 'draw' && coords.every((coord) => current.board[coord] === current.winner)) || [];
+    $('board').setAttribute('aria-label', 'Tic-tac-toe board. Game ' + current.current_game + ' of ' + current.total_games + '.');
+    for (const cell of $('board').children) {
+        const value = current.board[cell.dataset.coord];
+        const previous = cell.dataset.value || '.';
+        cell.dataset.value = value;
+        cell.className = 'cell';
+        cell.setAttribute('aria-label', cell.dataset.coord + ': ' + (value === '.' ? 'empty' : value) + (line.includes(cell.dataset.coord) ? ', winning square' : ''));
+        if (value === 'X' || value === 'O') {
+            cell.classList.add(value);
+            if (previous !== value) cell.classList.add('new-move');
+            // Only fixed SVG markup is inserted; all model text uses textContent.
+            cell.innerHTML = value === 'X'
+                ? '<svg class="piece" viewBox="0 0 48 48" aria-hidden="true"><path d="m9 9 30 30M39 9 9 39"/></svg>'
+                : '<svg class="piece" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="17"/></svg>';
+        } else {
+            cell.innerHTML = '<span class="cell-placeholder" aria-hidden="true"></span>';
+        }
+        cell.classList.toggle('winner', line.includes(cell.dataset.coord));
+    }
+}
+
+function renderProfiles(profiles) {
+    for (const model of Object.keys(names)) {
+        names[model] = profiles[model].name;
+        $(model + '-name').textContent = names[model];
+        $(model + '-mode').textContent = profiles[model].detail;
+        $(model + '-provider').textContent = names[model].startsWith('Test ') ? 'Simulated' : model === 'gpt' ? 'OpenAI' : 'Anthropic';
+        $(model + '-panel').querySelector('.stats-box').setAttribute('aria-label', names[model] + ' results');
+        $(model + '-time-heading').textContent = names[model] + ' time';
+    }
+    $('matchup-label').textContent = names.gpt + ' × ' + names.claude;
+}
+
+function renderMode(selected) {
+    $('play-mode').value = selected;
+    $('test-badge').classList.toggle('hidden', selected !== 'test');
+    $('mode-description').textContent = configuration?.test_only
+        ? 'Test mode is enforced by the server. Real models cannot be called.'
+        : ({local: 'Uses your signed-in Codex and Claude CLIs. No API keys needed.', api: 'Uses OpenAI and Anthropic API keys from the server’s .env file.', test: 'Simulated players. No CLI, API, or real LLM calls.'})[selected];
+}
+
+function render(current) {
+    const changedGame = renderedGame !== current.current_game;
+    state = current;
+    renderProfiles(current.players);
+    renderMode(current.mode);
+    renderedGame = current.current_game;
+    $('game-counter').classList.remove('hidden');
+    $('game-number').textContent = current.current_game;
+    $('total-games').textContent = current.total_games;
+    renderBoard(current);
+    for (const model of Object.keys(names)) {
+        const mark = current[model + '_mark'];
+        $(model + '-mark').textContent = mark;
+        $(model + '-mark').className = 'mark ' + mark;
+        $(model + '-mark').setAttribute('aria-label', 'Playing as ' + mark);
+        for (const result of ['wins', 'losses', 'draws']) {
+            $(model + '-' + result).textContent = current[model + '_stats'][result];
+        }
+        $(model + '-last-time').textContent = Number(current[model + '_last_time'] || 0).toFixed(1) + 's';
+        $(model + '-total-time').textContent = Number(current[model + '_total_time'] || 0).toFixed(1) + 's';
+        $(model + '-reasoning').textContent = current[model + '_reasoning'] || 'The model’s explanation will appear after its next move.';
+        $(model + '-idle').textContent = current.game_over ? 'Game finished' : current.current_model === model ? 'Up next' : 'Waiting for its turn';
+        if (changedGame) $(model + '-last-move').textContent = '—';
+    }
+    renderHistory(current.game_history);
+    $('series-progress').classList.remove('hidden');
+    $('series-progress').max = current.total_games;
+    $('series-progress').value = current.game_history.length;
+    $('series-progress-text').textContent = current.game_history.length + ' of ' + current.total_games + ' games complete';
+    if (current.game_over) {
+        setStatus(current.winner === 'draw' ? 'A well-matched draw.' : names[current.winner === current.gpt_mark ? 'gpt' : 'claude'] + ' takes the game.', current.all_games_complete ? 'Every move counted.' : 'The next game begins in a moment.');
+    }
+}
+
+function renderHistory(history) {
+    $('history-empty').classList.toggle('hidden', history.length > 0);
+    $('history-table-wrap').classList.toggle('hidden', history.length === 0);
+    $('history-count').textContent = history.length + (history.length === 1 ? ' game' : ' games');
+    $('stats-body').replaceChildren();
+    for (const game of [...history].reverse()) {
+        const row = document.createElement('tr');
+        const values = [String(game.game).padStart(2, '0'), game.time, game.winner, Number(game.gpt_time || 0).toFixed(1) + 's', Number(game.claude_time || 0).toFixed(1) + 's'];
+        values.forEach((value, index) => {
+            const cell = document.createElement('td');
+            cell.textContent = value;
+            if (index === 2) cell.className = game.winner_model === 'gpt' ? 'winner-gpt' : game.winner_model === 'claude' ? 'winner-claude' : 'winner-draw';
+            row.appendChild(cell);
+        });
+        $('stats-body').appendChild(row);
+    }
+}
+
+function finishSeries() {
+    setMode('complete');
+    const gptWins = state.gpt_stats.wins;
+    const claudeWins = state.claude_stats.wins;
+    const result = gptWins === claudeWins ? 'Honors shared.' : names[gptWins > claudeWins ? 'gpt' : 'claude'] + ' wins the series.';
+    setStatus(result, `${gptWins} ${names.gpt} wins · ${claudeWins} ${names.claude} wins · ${state.gpt_stats.draws} draws`);
+}
+
+async function runGameLoop() {
+    if (loopActive) return;
+    loopActive = true;
+    setMode('running');
+    try {
+        while (mode === 'running') {
+            const current = await request('game-state');
+            render(current);
+            if (current.all_games_complete) {
+                finishSeries();
+                break;
+            }
+            if (mode !== 'running') break;
+            if (current.game_over) {
+                await sleep(state.mode === 'test' ? 350 : 1800);
+                if (mode !== 'running') break;
+                const next = await request('next-game', { method: 'POST' });
+                render(next.game_state);
+                continue;
+            }
+            showThinking(current.current_model);
+            const move = await request('next-move', { method: 'POST' });
+            clearThinking();
+            render(move.game_state);
+            $(move.model + '-last-move').textContent = move.move;
+            if (state.all_games_complete) {
+                finishSeries();
+                break;
+            }
+            if (!state.game_over) setStatus(names[move.model] + ' played ' + move.move + '.', 'The board is taking shape.');
+            if (mode !== 'running') break;
+            await sleep(state.mode === 'test' ? 250 : 1000);
+        }
+    } catch (error) {
+        showError(error);
+    } finally {
+        clearThinking();
+        loopActive = false;
+        if (mode === 'pausing') {
+            setMode('paused');
+            setStatus('A moment to think.', 'Resume whenever you’re ready.');
+        }
     }
 }
 
 async function startGames() {
-    const numGames = parseInt(gameCountSelect.value);
-
+    if (loopActive || ['loading', 'starting'].includes(mode)) return;
+    $('error-message').classList.add('hidden');
+    if ((mode === 'paused' || mode === 'error') && state && !state.all_games_complete && $('play-mode').value === state.mode) {
+        await runGameLoop();
+        return;
+    }
+    setMode('starting');
     try {
-        const response = await fetch('/api/start-games', {
+        const data = await request('start-games', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ num_games: numGames })
+            body: JSON.stringify({ num_games: Number($('game-count').value), mode: $('play-mode').value })
         });
-
-        const data = await response.json();
-        if (data.success) {
-            modalOverlay.classList.add('hidden');
-            gameContainer.classList.remove('hidden');
-            statsSection.classList.remove('hidden');
-
-            updateUI(data.game_state);
-            runGameLoop();
-        }
+        renderedGame = null;
+        render(data.game_state);
+        await runGameLoop();
     } catch (error) {
-        console.error('Error starting games:', error);
-        alert('Failed to start games. Check console for details.');
+        showError(error);
     }
 }
 
-async function runGameLoop() {
-    if (isRunning) return;
-    isRunning = true;
+$('btn-run').addEventListener('click', startGames);
+$('btn-pause').addEventListener('click', () => {
+    if (mode !== 'running') return;
+    setMode('pausing');
+    setStatus('Pausing after this turn.', 'Any move already in progress will finish first.');
+});
+$('game-count').addEventListener('change', () => {
+    if (!state) $('series-progress').max = Number($('game-count').value);
+});
 
-    while (isRunning) {
-        // Get current state
-        const stateResponse = await fetch('/api/game-state');
-        const state = await stateResponse.json();
+$('play-mode').addEventListener('change', () => {
+    const selected = $('play-mode').value;
+    renderMode(selected);
+    if (!state && configuration) renderProfiles(configuration.profiles[selected]);
+    if (mode === 'error' && state && !state.all_games_complete) {
+        $('btn-run').querySelector('span').textContent = selected === state.mode ? 'Retry match' : 'Start new match';
+        $('game-count').disabled = selected === state.mode;
+    }
+});
 
-        if (state.all_games_complete) {
-            gameStatusEl.textContent = '🏆 All games complete!';
-            isRunning = false;
-            break;
-        }
-
-        if (state.game_over) {
-            // Show result briefly, then start next game
-            await sleep(2000);
-
-            const nextResponse = await fetch('/api/next-game', { method: 'POST' });
-            const nextData = await nextResponse.json();
-
-            if (nextData.success) {
-                updateUI(nextData.game_state);
-                // Reset reasoning displays and last moves
-                gptReasoningEl.textContent = 'Waiting for move...';
-                claudeReasoningEl.textContent = 'Waiting for move...';
-                gptLastMoveEl.textContent = '—';
-                claudeLastMoveEl.textContent = '—';
-            } else {
-                isRunning = false;
-                break;
+async function restoreSession() {
+    setMode('loading');
+    try {
+        configuration = await request('config');
+        renderMode(configuration.default_mode);
+        renderProfiles(configuration.profiles[configuration.default_mode]);
+        const saved = await request('game-state');
+        if (saved.game_history.length || Object.values(saved.board).some((value) => value !== '.')) {
+            $('game-count').value = saved.total_games;
+            render(saved);
+            if (saved.all_games_complete) finishSeries();
+            else {
+                setMode('paused');
+                setStatus('Welcome back.', 'Your match is saved. Resume whenever you’re ready.');
             }
-
-            await sleep(1000);
-            continue;
-        }
-
-        // Show thinking indicator for current model and start timer
-        if (state.current_model === 'gpt') {
-            gptThinkingEl.classList.remove('hidden');
-            claudeThinkingEl.classList.add('hidden');
-            gameStatusEl.textContent = "GPT 5.2 High's turn...";
-            startTimer(gptTimerEl);
-        } else {
-            claudeThinkingEl.classList.remove('hidden');
-            gptThinkingEl.classList.add('hidden');
-            gameStatusEl.textContent = "Claude Opus 4.5 Thinking's turn...";
-            startTimer(claudeTimerEl);
-        }
-
-        // Make the move
-        try {
-            const moveResponse = await fetch('/api/next-move', { method: 'POST' });
-            const moveData = await moveResponse.json();
-
-            // Stop timer and hide thinking indicators
-            stopTimer();
-            gptThinkingEl.classList.add('hidden');
-            claudeThinkingEl.classList.add('hidden');
-
-            if (moveData.success) {
-                updateUI(moveData.game_state);
-
-                // Update last move display
-                if (moveData.model === 'gpt') {
-                    gptLastMoveEl.textContent = moveData.move;
-                } else {
-                    claudeLastMoveEl.textContent = moveData.move;
-                }
-
-                // Show which move was made
-                if (moveData.game_state.game_over) {
-                    const winner = moveData.game_state.winner;
-                    if (winner === 'draw') {
-                        gameStatusEl.textContent = "🤝 It's a draw!";
-                    } else if (winner === moveData.game_state.gpt_mark) {
-                        gameStatusEl.textContent = '🎉 GPT 5.2 High wins!';
-                    } else {
-                        gameStatusEl.textContent = '🎉 Claude Opus 4.5 Thinking wins!';
-                    }
-                }
-            } else {
-                console.error('Move error:', moveData.error);
-                gameStatusEl.textContent = 'Error: ' + moveData.error;
-                isRunning = false;
-                break;
-            }
-        } catch (error) {
-            console.error('API error:', error);
-            gameStatusEl.textContent = 'API Error - check console';
-            stopTimer();
-            gptThinkingEl.classList.add('hidden');
-            claudeThinkingEl.classList.add('hidden');
-            isRunning = false;
-            break;
-        }
-
-        // Small delay between moves for visibility
-        await sleep(1500);
+        } else setMode('idle');
+    } catch (error) {
+        showError(error);
     }
 }
-
-function updateUI(state) {
-    // Update game number
-    gameNumberEl.textContent = state.current_game;
-    totalGamesEl.textContent = state.total_games;
-
-    // Update board
-    const cells = boardEl.querySelectorAll('.cell');
-    cells.forEach(cell => {
-        const coord = cell.dataset.coord;
-        const value = state.board[coord];
-
-        cell.textContent = value === '.' ? '' : value;
-        cell.className = 'cell';
-        if (value !== '.') {
-            cell.classList.add(value);
-        }
-    });
-
-    // Update marks
-    gptMarkEl.textContent = state.gpt_mark;
-    gptMarkEl.className = 'mark ' + state.gpt_mark;
-    claudeMarkEl.textContent = state.claude_mark;
-    claudeMarkEl.className = 'mark ' + state.claude_mark;
-
-    // Update stats
-    gptWinsEl.textContent = state.gpt_stats.wins;
-    gptLossesEl.textContent = state.gpt_stats.losses;
-    gptDrawsEl.textContent = state.gpt_stats.draws;
-
-    claudeWinsEl.textContent = state.claude_stats.wins;
-    claudeLossesEl.textContent = state.claude_stats.losses;
-    claudeDrawsEl.textContent = state.claude_stats.draws;
-
-    // Update timing
-    gptLastTimeEl.textContent = state.gpt_last_time + 's';
-    gptTotalTimeEl.textContent = state.gpt_total_time + 's';
-    claudeLastTimeEl.textContent = state.claude_last_time + 's';
-    claudeTotalTimeEl.textContent = state.claude_total_time + 's';
-
-    // Update reasoning
-    if (state.gpt_reasoning) {
-        gptReasoningEl.textContent = state.gpt_reasoning;
-    }
-    if (state.claude_reasoning) {
-        claudeReasoningEl.textContent = state.claude_reasoning;
-    }
-
-    // Update game history table
-    updateStatsTable(state.game_history);
-}
-
-function updateStatsTable(history) {
-    statsBody.innerHTML = '';
-
-    history.forEach(game => {
-        const row = document.createElement('tr');
-
-        let winnerClass = '';
-        if (game.winner === 'GPT 5.2 High') winnerClass = 'winner-gpt';
-        else if (game.winner === 'Claude Opus 4.5 Thinking') winnerClass = 'winner-claude';
-        else winnerClass = 'winner-draw';
-
-        row.innerHTML = `
-            <td>${game.game}</td>
-            <td>${game.time}</td>
-            <td class="${winnerClass}">${game.winner}</td>
-            <td>${game.gpt_time || 0}</td>
-            <td>${game.claude_time || 0}</td>
-        `;
-
-        statsBody.appendChild(row);
-    });
-}
-
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
+restoreSession();
