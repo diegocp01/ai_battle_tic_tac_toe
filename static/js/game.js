@@ -70,6 +70,9 @@ function updateEffortLabel(key) {
         : $('play-mode').value === 'test' ? 'Not used' : !selectedModel(key) ? 'Unavailable'
         : 'Not supported';
     $(key + '-effort').setAttribute('aria-valuetext', $(key + '-effort-value').textContent);
+    for (const [index, tick] of [...$(key + '-effort-ticks').children].entries()) {
+        tick.classList.toggle('is-selected', index === Number($(key + '-effort').value));
+    }
 }
 
 function populateEffort(key, preferred) {
@@ -81,6 +84,15 @@ function populateEffort(key, preferred) {
     slider.value = Math.max(0, effortLevels[key].indexOf(value));
     slider.disabled = effortLevels[key].length <= 1 || ['loading', 'starting', 'running', 'pausing'].includes(mode);
     $(key + '-effort-max').textContent = effortLevels[key].length > 1 ? effortLabels[effortLevels[key].at(-1)] : '';
+    const ticks = $(key + '-effort-ticks');
+    ticks.replaceChildren();
+    if (effortLevels[key].length > 1) {
+        for (const effort of effortLevels[key]) {
+            const tick = document.createElement('span');
+            tick.title = effortLabels[effort] || effort;
+            ticks.appendChild(tick);
+        }
+    }
     updateEffortLabel(key);
 }
 

@@ -224,3 +224,8 @@ select { width: 100%; min-width: 0; min-height: 44px; appearance: none; color: v
 .effort-control input[type="range"]:focus-visible { outline: 3px solid #0071e388; outline-offset: 3px; border-radius: 6px; }
 .effort-limits { display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; }
 .model-note { color: #a5392b; font-size: 11px; line-height: 1.5; margin: 12px 0 0; }
+
+.effort-ticks { display: flex; justify-content: space-between; height: 7px; margin: -6px 8px 9px; }
+.effort-ticks > span { width: 1px; height: 7px; flex: none; background: #a9a9b2; border-radius: 1px; }
+.effort-ticks > .is-selected { background: var(--blue); }
+.claude-pick .effort-ticks > .is-selected { background: var(--claude); }
