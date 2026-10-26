@@ -50,6 +50,7 @@ python app.py --test
 
 ## Match controls
 
+- **Who goes first:** X always plays first. Each new match randomly picks which model plays X in round 1; every later round swaps marks, so the first player alternates (for example Claude, Codex, Claude). Starting a new match picks at random again.
 - **Pause** finishes a move already in progress, then stops. **Resume match** continues the same series.
 - Refreshing restores an unfinished board in a paused state. Completed series stay visible until a new match begins.
 - Failed starts stay on setup; failed moves stay on the match with a retry action. **New match** returns to model and round selection, where you can switch to Test.
