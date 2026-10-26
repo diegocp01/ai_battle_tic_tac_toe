@@ -30,7 +30,9 @@ test('setup has models and rounds; completed matches return to setup before star
     await page.keyboard.press('Enter');
     await expect(page.locator('#setup')).toBeHidden();
     await expect(page.locator('#session-title')).toHaveText('Series complete');
-    await expect(page.locator('#stats-body tr')).toHaveCount(2);
+    await expect(page.locator('#stats-body tr')).toHaveCount(0);
+    await expect(page.locator('#history-count')).toHaveText('0 matches');
+    await expect(page.locator('#series-progress-text')).toHaveText('2 of 2 rounds complete');
     await expect(page.locator('.cell.winner')).toHaveCount(3);
     await expect(page.locator('#gpt-reasoning')).toContainText('No LLM was called');
     await page.reload();
@@ -44,7 +46,7 @@ test('setup has models and rounds; completed matches return to setup before star
     await expect(page.locator('#setup')).toBeVisible();
     await start(page);
     await expect(page.locator('#session-title')).toHaveText('Series complete');
-    await expect(page.locator('#stats-body tr')).toHaveCount(1);
+    await expect(page.locator('#stats-body tr')).toHaveCount(0);
     expect(errors).toEqual([]);
 });
 
@@ -146,12 +148,12 @@ test('exact model names and independent effort sliders are submitted and restore
     await page.click('#btn-run');
     expect((await submitted).postDataJSON()).toMatchObject({gpt_effort: 'ultra', claude_effort: 'max', claude_model: 'claude-sonnet-5-5'});
     await expect(page.locator('#session-title')).toHaveText('Match interrupted');
-    await expect(page.locator('#gpt-mode')).toContainText('ultra effort');
-    await expect(page.locator('#claude-mode')).toContainText('max effort');
+    await expect(page.locator('#gpt-effort-detail')).toHaveText('Ultra');
+    await expect(page.locator('#claude-effort-detail')).toHaveText('Max');
     await page.reload();
     await expect(page.locator('#session-title')).toHaveText('Match paused');
-    await expect(page.locator('#gpt-mode')).toContainText('ultra effort');
-    await expect(page.locator('#claude-mode')).toContainText('max effort');
+    await expect(page.locator('#gpt-effort-detail')).toHaveText('Ultra');
+    await expect(page.locator('#claude-effort-detail')).toHaveText('Max');
     await page.click('#btn-new');
     await expect(page.locator('#gpt-model')).toHaveValue('gpt-6-luna');
     await expect(page.locator('#gpt-effort-value')).toHaveText('Low');
@@ -213,13 +215,22 @@ test('setup and match fit mobile widths and respect reduced motion', async ({ pa
     for (const width of [1440, 768, 390, 320]) {
         await page.setViewportSize({width, height: 1000});
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        if (width <= 1100) {
+            const board = await page.locator('#board').boundingBox();
+            for (const model of ['gpt', 'claude']) {
+                const name = await page.locator(`#${model}-name`).boundingBox();
+                const explanation = await page.locator(`#${model}-reasoning`).boundingBox();
+                expect(name.y + name.height).toBeLessThan(board.y);
+                expect(explanation.y).toBeGreaterThan(board.y + board.height);
+            }
+        }
     }
     await expect(page.locator('.cell[role="img"]')).toHaveCount(9);
     expect(await page.locator('.piece').first().evaluate(el => getComputedStyle(el).animationName)).toBe('none');
 });
 
 
-test('the board leads the match; all player details and history remain behind toggles', async ({ page }) => {
+test('quiet side panels flank the board; the only bottom section is global history', async ({ page }) => {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.setViewportSize({width: 1440, height: 1000});
@@ -227,38 +238,39 @@ test('the board leads the match; all player details and history remain behind to
     await start(page);
     await expect(page.locator('#session-title')).toHaveText('Series complete');
     const board = await page.locator('#board').boundingBox();
-    const players = await page.locator('.player-bar').boundingBox();
+    const left = await page.locator('#gpt-panel').boundingBox();
+    const right = await page.locator('#claude-panel').boundingBox();
     expect(board.width).toBeGreaterThanOrEqual(580);
-    expect(players.height).toBeLessThan(90);
-    expect(board.height).toBeGreaterThan(players.height * 6);
-    await expect(page.locator('#gpt-name')).toBeVisible();
-    await expect(page.locator('#claude-name')).toBeVisible();
-    await expect(page.locator('#match-details')).not.toHaveAttribute('open');
+    expect(left.width).toBeLessThanOrEqual(220);
+    expect(right.width).toBeLessThanOrEqual(220);
+    expect(left.x + left.width).toBeLessThan(board.x);
+    expect(right.x).toBeGreaterThan(board.x + board.width);
+    await expect(page.locator('.match-disclosures > *')).toHaveCount(1);
     await expect(page.locator('#history')).not.toHaveAttribute('open');
+    await expect(page.locator('#history-count')).toHaveText('0 matches');
     await expect(page.locator('#gpt-stats')).toBeHidden();
-    await expect(page.locator('#history-table-wrap')).toBeHidden();
-    await expect(page.locator('#gpt-reasoning')).toBeVisible();
-    await page.locator('#explanations > summary').click();
-    await expect(page.locator('#gpt-reasoning')).toBeHidden();
-    await page.locator('#explanations > summary').click();
-    await page.locator('#match-details > summary').click();
     for (const model of ['gpt', 'claude']) {
-        for (const field of ['provider', 'mode', 'wins', 'draws', 'losses', 'idle', 'last-move', 'last-time', 'total-time']) {
+        for (const field of ['name', 'provider', 'effort-detail', 'idle', 'last-move', 'reasoning']) {
             await expect(page.locator(`#${model}-${field}`)).toBeVisible();
         }
         await expect(page.locator(`#${model}-last-move`)).not.toHaveText('—');
+        await page.locator(`#${model}-panel .player-more > summary`).click();
+        for (const field of ['wins', 'draws', 'losses', 'last-time', 'total-time']) {
+            await expect(page.locator(`#${model}-${field}`)).toBeVisible();
+        }
     }
     await expect(page.locator('#series-progress')).toBeVisible();
     await expect(page.locator('.match-rules')).toContainText('X plays first, O plays second');
     await page.locator('#history > summary').focus();
     await page.keyboard.press('Enter');
-    await expect(page.locator('#history-table-wrap')).toBeVisible();
-    await expect(page.locator('#stats-body tr')).toHaveCount(1);
+    await expect(page.locator('#history-empty')).toHaveText('No matches yet.');
+    await expect(page.locator('#history-empty')).toBeVisible();
+    await expect(page.locator('#history-table-wrap')).toBeHidden();
     await page.keyboard.press('Enter');
-    await page.locator('#match-details > summary').click();
+    for (const model of ['gpt', 'claude']) await page.locator(`#${model}-panel .player-more > summary`).click();
     if (process.env.ARENA_SCREENSHOTS) {
         await page.locator('#arena').focus();
-        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.evaluate(() => window.scrollTo({top: 0, behavior: 'instant'}));
         await page.screenshot({path: 'static/img/match.png', fullPage: true});
         await page.setViewportSize({width: 390, height: 1000});
         await page.screenshot({path: '/tmp/tic-tac-toe-review/match-mobile.png', fullPage: true});
@@ -270,6 +282,35 @@ test('the board leads the match; all player details and history remain behind to
     await expect(page.locator('#winning-line')).not.toHaveClass(/is-visible/);
     await expect(page.locator('.cell.winner')).toHaveCount(0);
     expect(errors).toEqual([]);
+});
+
+test('history reads the global archive rather than completed rounds and safely renders text', async ({ page }) => {
+    await page.route('**/api/match-history', route => route.fulfill({json: {matches: [{
+        finished_at: '2026-10-20 10:00', gpt_name: '<img src=x onerror=alert(1)>', claude_name: 'Archive Claude', rounds: 3, result: 'Draw',
+    }]}}));
+    await ready(page);
+    await start(page, '2');
+    await expect(page.locator('#session-title')).toHaveText('Series complete');
+    await expect(page.locator('#history-count')).toHaveText('1 match');
+    await page.locator('#history > summary').click();
+    await expect(page.locator('#stats-body tr')).toHaveCount(1);
+    await expect(page.locator('#stats-body')).toContainText('Archive Claude');
+    await expect(page.locator('#stats-body')).toContainText('<img src=x onerror=alert(1)>');
+    await expect(page.locator('#stats-body img')).toHaveCount(0);
+    await page.click('#btn-new');
+    await start(page);
+    await expect(page.locator('#session-title')).toHaveText('Series complete');
+    await expect(page.locator('#history-count')).toHaveText('1 match');
+});
+
+test('unavailable history does not interrupt a match', async ({ page }) => {
+    await page.route('**/api/match-history', route => route.fulfill({status: 503, json: {error: 'Unavailable'}}));
+    await ready(page);
+    await start(page);
+    await expect(page.locator('#session-title')).toHaveText('Series complete');
+    await page.locator('#history > summary').click();
+    await expect(page.locator('#history-empty')).toHaveText('Match history is unavailable.');
+    await expect(page.locator('#error-message')).toBeHidden();
 });
 
 test('wins draw a line through all eight patterns in the winning mark color; draws have no line', async ({ page }) => {

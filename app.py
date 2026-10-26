@@ -4,6 +4,8 @@ from datetime import datetime
 import time
 import os
 import argparse
+import json
+from pathlib import Path
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 from providers import MODES, ProviderError, choose_move, player_profiles, model_catalog, select_models
@@ -15,6 +17,7 @@ app.secret_key = os.getenv('FLASK_SECRET_KEY') or os.urandom(24)
 app.config['TEST_MODE'] = os.getenv('ARENA_TEST_MODE', '').lower() in ('1', 'true', 'yes')
 app.config['TRUSTED_HOSTS'] = ['localhost', '127.0.0.1', '[::1]']
 app.config['MAX_CONTENT_LENGTH'] = 16384
+MATCH_HISTORY_PATH = Path(__file__).resolve().parent / 'data' / 'match-history.json'
 
 
 @app.before_request
@@ -35,6 +38,20 @@ def configuration():
         'profiles': {mode: player_profiles(mode) for mode in MODES},
         'models': model_catalog(discover=not app.config['TEST_MODE']),
     })
+
+@app.route('/api/match-history')
+def match_history():
+    """Read the global archive. Playing a match never writes to this file."""
+    try:
+        archive = json.loads(MATCH_HISTORY_PATH.read_text())
+        if not isinstance(archive, dict) or not isinstance(archive.get('matches'), list) or not all(isinstance(match, dict) for match in archive['matches']):
+            raise ValueError('Invalid match archive')
+    except (OSError, ValueError):
+        return jsonify({'error': 'Match history is unavailable.'}), 503
+    response = jsonify({'matches': archive['matches']})
+    response.cache_control.no_store = True
+    return response
+
 
 # Board coordinate mapping
 COORDS = ['A1', 'B1', 'C1', 'A2', 'B2', 'C2', 'A3', 'B3', 'C3']

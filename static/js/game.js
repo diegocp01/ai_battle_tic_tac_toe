@@ -52,6 +52,7 @@ function showMatch() {
     $('match-view').classList.remove('hidden');
     document.querySelector('.skip-link').href = '#arena';
     document.querySelector('.skip-link').textContent = 'Skip to match';
+    loadMatchHistory();
 }
 
 function selectedModel(key) {
@@ -237,12 +238,11 @@ function renderProfiles(profiles) {
     for (const model of Object.keys(names)) {
         names[model] = profiles[model].name;
         $(model + '-name').textContent = names[model];
-        $(model + '-mode').textContent = profiles[model].detail;
-        $(model + '-provider').textContent = names[model].startsWith('Test ') ? 'Simulated' : model === 'gpt' ? 'OpenAI' : 'Anthropic';
+        const provider = names[model].startsWith('Test ') ? 'Simulated' : model === 'gpt' ? 'OpenAI' : 'Anthropic';
+        const connection = profiles[model].detail.split(' · ')[0];
+        $(model + '-provider').textContent = provider;
+        $(model + '-mode').textContent = connection === provider ? '' : connection;
         $(model + '-stats').setAttribute('aria-label', names[model] + ' results');
-        $(model + '-stats-name').textContent = names[model];
-        $(model + '-explanation-name').textContent = names[model];
-        $(model + '-time-heading').textContent = names[model] + ' time';
     }
 }
 
@@ -270,6 +270,8 @@ function render(current) {
         $(model + '-mark').textContent = mark;
         $(model + '-mark').className = 'mark ' + mark;
         $(model + '-mark').setAttribute('aria-label', 'Playing as ' + mark);
+        const effort = current[model + '_effort'] || 'default';
+        $(model + '-effort-detail').textContent = current.mode === 'test' ? 'Not used' : effortLabels[effort] || effort;
         for (const result of ['wins', 'losses', 'draws']) {
             $(model + '-' + result).textContent = current[model + '_stats'][result];
         }
@@ -279,7 +281,6 @@ function render(current) {
         $(model + '-idle').textContent = current.game_over ? 'Game finished' : current.current_model === model ? 'Up next' : 'Waiting for its turn';
         if (changedGame) $(model + '-last-move').textContent = '—';
     }
-    renderHistory(current.game_history);
     $('series-progress').classList.remove('hidden');
     $('series-progress').max = current.total_games;
     $('series-progress').value = current.game_history.length;
@@ -289,20 +290,31 @@ function render(current) {
     }
 }
 
-function renderHistory(history) {
-    $('history-empty').classList.toggle('hidden', history.length > 0);
-    $('history-table-wrap').classList.toggle('hidden', history.length === 0);
-    $('history-count').textContent = history.length + (history.length === 1 ? ' round' : ' rounds');
+async function loadMatchHistory() {
+    try {
+        const archive = await request('match-history', {cache: 'no-store'});
+        renderHistory(archive.matches);
+    } catch {
+        renderHistory([]);
+        $('history-empty').textContent = 'Match history is unavailable.';
+    }
+}
+
+function renderHistory(matches) {
+    $('history-empty').textContent = 'No matches yet.';
+    $('history-empty').classList.toggle('hidden', matches.length > 0);
+    $('history-table-wrap').classList.toggle('hidden', matches.length === 0);
+    $('history-count').textContent = matches.length + (matches.length === 1 ? ' match' : ' matches');
     $('stats-body').replaceChildren();
-    for (const game of [...history].reverse()) {
+    for (const match of [...matches].reverse()) {
         const row = document.createElement('tr');
-        const values = [String(game.game).padStart(2, '0'), game.time, game.winner, Number(game.gpt_time || 0).toFixed(1) + 's', Number(game.claude_time || 0).toFixed(1) + 's'];
-        values.forEach((value, index) => {
+        const players = [match.gpt_name, match.claude_name].filter(Boolean).join(' vs ');
+        const values = [match.finished_at || '—', players || '—', match.rounds ?? '—', match.result || '—'];
+        for (const value of values) {
             const cell = document.createElement('td');
             cell.textContent = value;
-            if (index === 2) cell.className = game.winner_model === 'gpt' ? 'winner-gpt' : game.winner_model === 'claude' ? 'winner-claude' : 'winner-draw';
             row.appendChild(cell);
-        });
+        }
         $('stats-body').appendChild(row);
     }
 }
@@ -380,7 +392,7 @@ async function startGames(event) {
         });
         rememberSettings();
         renderedGame = null;
-        $('match-details').open = false;
+        for (const detail of document.querySelectorAll('.player-more')) detail.open = false;
         $('history').open = false;
         render(data.game_state);
         showMatch();

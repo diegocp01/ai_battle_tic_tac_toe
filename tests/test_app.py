@@ -159,6 +159,46 @@ class ArenaTests(unittest.TestCase):
         response = self.client.post('/api/start-games', json={'mode': 'local'}, headers={'Origin': 'https://example.com'})
         self.assertEqual(response.status_code, 403)
 
+    def test_completed_series_never_writes_the_global_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory, 'match-history.json')
+            original = '{"matches": []}\n'
+            archive.write_text(original)
+            with patch('app.MATCH_HISTORY_PATH', archive):
+                self.assertEqual(self.client.get('/api/match-history').json, {'matches': []})
+                self.start(games=2)
+                for game in range(2):
+                    while not self.client.post('/api/next-move').json['game_state']['game_over']:
+                        pass
+                    if game == 0:
+                        self.client.post('/api/next-game')
+                self.assertEqual(self.client.get('/api/match-history').json, {'matches': []})
+                self.client.post('/api/reset')
+                self.start()
+                self.assertEqual(archive.read_text(), original)
+                self.assertEqual(self.client.post('/api/match-history', json={}).status_code, 405)
+
+    def test_archive_is_global_and_read_from_json_without_mutation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory, 'match-history.json')
+            payload = {'matches': [{'gpt_name': 'Archived Codex', 'claude_name': 'Archived Claude', 'rounds': 3, 'result': 'Draw'}]}
+            archive.write_text(json.dumps(payload))
+            with patch('app.MATCH_HISTORY_PATH', archive):
+                self.assertEqual(self.client.get('/api/match-history').json, payload)
+                self.assertEqual(app.test_client().get('/api/match-history').json, payload)
+                archive.write_text('{"matches": []}')
+                self.assertEqual(self.client.get('/api/match-history').json, {'matches': []})
+
+    def test_missing_or_malformed_history_is_a_read_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory, 'match-history.json')
+            with patch('app.MATCH_HISTORY_PATH', archive):
+                self.assertEqual(self.client.get('/api/match-history').status_code, 503)
+                for invalid in ['not JSON', '[]', '{"matches": {}}', '{"matches": ["bad"]}']:
+                    archive.write_text(invalid)
+                    self.assertEqual(self.client.get('/api/match-history').status_code, 503)
+                    self.assertEqual(archive.read_text(), invalid)
+
 
 class AdapterTests(unittest.TestCase):
     def test_no_api_key_is_needed_until_api_mode_is_used(self):

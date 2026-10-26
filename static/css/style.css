@@ -54,23 +54,25 @@ select { width: 100%; min-width: 0; min-height: 44px; appearance: none; color: v
 .secondary { background: #f0f0f3; color: var(--ink); }
 .secondary:hover:not(:disabled) { background: #e6e6eb; }
 .start-button { width: 100%; min-height: 46px; font-size: 13px; }
-.match-view { max-width: 696px; margin: 24px auto 0; }
-.arena-toolbar { min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.match-view { max-width: 1208px; margin: 24px auto 0; }
+.arena-toolbar { max-width: 648px; margin: auto; min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .game-counter { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .game-counter b { font-weight: 500; }
 .match-controls { display: flex; align-items: center; gap: 8px; }
 .match-controls .button { min-height: 36px; padding: 9px 13px; }
-.player-bar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; max-width: 600px; width: calc(100% - 48px); margin: 20px auto 12px; }
-.model-panel { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 8px 0; border-bottom: 2px solid transparent; }
+.arena-layout { display: grid; grid-template-columns: minmax(150px, 208px) minmax(0, 648px) minmax(150px, 208px); justify-content: center; align-items: start; gap: 36px; margin-top: 30px; }
+.model-panel { min-width: 0; padding-top: 38px; }
 .model-panel[data-mark="X"] { --mark-color: var(--x); }
 .model-panel[data-mark="O"] { --mark-color: var(--o); }
-.model-panel.is-thinking { border-color: var(--mark-color); }
+.model-identity { display: flex; align-items: flex-start; gap: 10px; padding-bottom: 10px; border-bottom: 2px solid transparent; }
+.model-panel.is-thinking .model-identity { border-color: var(--mark-color); }
+.model-info { margin-top: 12px; }
 .mark { display: grid; place-items: center; flex: none; font-size: 18px; font-weight: 550; width: 30px; height: 30px; border-radius: 9px; background: #eaeaef; }
 .mark.X { color: var(--x); background: #e7f0ff; }
 .mark.O { color: var(--o); background: #fce9ed; }
 .player-copy { flex: 1; min-width: 0; }
 .model-panel h2 { font-size: 14px; line-height: 1.35; font-weight: 600; letter-spacing: -.2px; margin: 0; overflow-wrap: anywhere; }
-.player-activity { min-height: 18px; padding-top: 4px; font-size: 10px; }
+.player-activity { min-height: 18px; padding-top: 4px; font-size: 10px; color: var(--muted); line-height: 1.5; }
 .thinking-bubble { display: flex; align-items: center; gap: 6px; color: var(--mark-color); }
 .thinking-dots { display: flex; gap: 3px; }
 .thinking-dots i { height: 3px; width: 3px; border-radius: 50%; background: currentColor; animation: think 1.2s ease-in-out infinite; }
@@ -100,18 +102,22 @@ select { width: 100%; min-width: 0; min-height: 44px; appearance: none; color: v
 #game-status { font-size: 13px; font-weight: 550; letter-spacing: -.1px; }
 #status-detail { font-size: 11px; line-height: 1.6; color: var(--muted); margin: 5px 0 0; }
 #status-detail:empty { display: none; }
-.match-disclosures { border-top: 1px solid #dcdce3; }
+.match-disclosures { max-width: 648px; margin: 0 auto; border-top: 1px solid #dcdce3; }
 .match-disclosure { border-bottom: 1px solid #dcdce3; }
-.match-disclosure > summary { min-height: 48px; display: flex; align-items: center; gap: 12px; list-style: none; cursor: pointer; font-size: 12px; font-weight: 550; }
-.match-disclosure > summary::-webkit-details-marker { display: none; }
-.match-disclosure > summary::after { content: ""; width: 6px; height: 6px; margin: 0 3px 3px auto; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); }
-.match-disclosure[open] > summary::after { transform: rotate(225deg); margin-bottom: -3px; }
-.explanations-grid, .details-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px; padding: 0 0 20px; }
-.reasoning-box, .player-details { min-width: 0; }
-.reasoning-box h3, .player-details h3 { font-size: 11px; font-weight: 600; margin: 0 0 7px; overflow-wrap: anywhere; }
-.reasoning-text { font-size: 11px; line-height: 1.65; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 110px; overflow: auto; padding-right: 4px; scrollbar-width: thin; }
+.match-disclosure > summary, .player-more > summary { min-height: 48px; display: flex; align-items: center; gap: 12px; list-style: none; cursor: pointer; font-size: 12px; font-weight: 550; }
+.match-disclosure > summary::-webkit-details-marker, .player-more > summary::-webkit-details-marker { display: none; }
+.match-disclosure > summary::after, .player-more > summary::after { content: ""; width: 6px; height: 6px; margin: 0 3px 3px auto; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); }
+.match-disclosure[open] > summary::after, .player-more[open] > summary::after { transform: rotate(225deg); margin-bottom: -3px; }
+.model-settings { display: grid; gap: 8px; margin: 14px 0 22px; font-size: 11px; }
+.model-settings > div { display: flex; justify-content: space-between; gap: 10px; }
+.model-settings dt { color: var(--muted); }
+.model-settings dd { margin: 0; font-weight: 500; text-align: right; }
+.reasoning-box h3 { font-size: 11px; font-weight: 500; color: var(--muted); margin: 0 0 8px; }
+.reasoning-text { font-size: 12px; line-height: 1.75; color: #626269; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; padding-right: 4px; scrollbar-width: thin; }
 .player-metadata { display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--muted); font-size: 10px; line-height: 1.5; }
-.stats-box { display: grid; grid-template-columns: repeat(3, 1fr); padding: 14px 0; margin-top: 14px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.player-more { margin-top: 22px; border-top: 1px solid var(--line); }
+.player-more > summary { min-height: 42px; color: var(--muted); font-size: 11px; font-weight: 400; }
+.stats-box { display: grid; grid-template-columns: repeat(3, 1fr); padding: 14px 0; margin-top: 0; border-top: 0; border-bottom: 1px solid var(--line); }
 .stats-box > div { text-align: center; }
 .stats-box > div + div { border-left: 1px solid var(--line); }
 .stat-value { display: block; font-size: 20px; font-weight: 550; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
@@ -120,15 +126,15 @@ select { width: 100%; min-width: 0; min-height: 44px; appearance: none; color: v
 .timing-info > div { display: flex; justify-content: space-between; gap: 12px; }
 .timing-info dt { color: var(--muted); }
 .timing-info dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
-.series-details { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
+.series-details { display: flex; align-items: center; gap: 10px; margin-top: 16px; flex-wrap: wrap; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
 .session-heading { display: flex; align-items: center; gap: 7px; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #a7a7ac; flex: none; }
 .status-dot.running { background: #42a47d; }
 .status-dot.paused { background: #cb9238; }
 .status-dot.complete { background: var(--blue); }
 .status-dot.error { background: #c74f45; }
-#series-progress-text { margin-left: auto; }
-.series-details progress { width: 70px; height: 4px; accent-color: var(--blue); }
+#series-progress-text { width: 100%; }
+.series-details progress { width: 100%; height: 4px; accent-color: var(--blue); }
 .match-rules { color: var(--muted); font-size: 10px; line-height: 1.5; margin: 12px 0 18px; }
 .count-badge { font-size: 10px; font-weight: 400; color: var(--muted); }
 .history-card { border: 1px solid var(--line); border-radius: 12px; background: #fff; overflow: hidden; margin-bottom: 18px; }
@@ -145,11 +151,20 @@ select { width: 100%; min-width: 0; min-height: 44px; appearance: none; color: v
 @keyframes think { 0%, 80%, 100% { opacity: .3; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
 @keyframes place { from { opacity: 0; transform: scale(.65); } to { opacity: 1; transform: scale(1); } }
 @keyframes strike { from { stroke-dasharray: 1; stroke-dashoffset: 1; } to { stroke-dasharray: 1; stroke-dashoffset: 0; } }
+@media (max-width: 1100px) {
+    .arena-layout { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 696px; gap: 18px 28px; margin: 24px auto 0; }
+    .model-panel { display: contents; }
+    .model-identity { grid-row: 1; }
+    .gpt-panel .model-identity, .gpt-panel .model-info { grid-column: 1; }
+    .claude-panel .model-identity, .claude-panel .model-info { grid-column: 2; }
+    .model-info { grid-row: 3; margin: 0 0 26px; }
+    .board-container { grid-column: 1/-1; grid-row: 2; }
+    .reasoning-text { max-height: 130px; }
+}
 @media (max-width: 700px) {
     .shell { padding-left: 20px; padding-right: 20px; }
     .setup { margin: 40px auto; }
     .match-view { margin-top: 18px; }
-    .player-bar { gap: 20px; }
     .series-details { gap: 10px; }
 }
 @media (max-width: 480px) {
@@ -165,8 +180,8 @@ select { width: 100%; min-width: 0; min-height: 44px; appearance: none; color: v
     .player-pick { padding: 14px; }
     .match-controls { gap: 6px; }
     .match-controls .button { padding: 9px 11px; font-size: 11px; }
-    .player-bar { width: calc(100% - 32px); gap: 16px; margin-top: 14px; }
-    .model-panel { gap: 7px; }
+    .arena-layout { gap: 16px 20px; margin-top: 18px; }
+    .model-identity { gap: 7px; }
     .model-panel h2 { font-size: 12px; }
     .mark { width: 25px; height: 25px; font-size: 16px; border-radius: 7px; }
     .thinking-bubble { gap: 4px; font-size: 9px; flex-wrap: wrap; }
@@ -175,10 +190,9 @@ select { width: 100%; min-width: 0; min-height: 44px; appearance: none; color: v
     .board-labels-left { width: 16px; }
     .board { border-radius: 17px; }
     .board-status { margin: 17px 0 18px; }
-    .explanations-grid, .details-grid { gap: 18px; }
-    .reasoning-text, .timing-info { font-size: 10px; }
+    .reasoning-text { font-size: 11px; }
+    .timing-info, .model-settings { font-size: 10px; }
     .timing-info > div { gap: 7px; }
-    #series-progress-text { margin-left: 0; }
     .series-details progress { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
