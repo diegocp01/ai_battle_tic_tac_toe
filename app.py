@@ -3,23 +3,48 @@ import random
 from datetime import datetime
 import time
 import os
+import argparse
+from urllib.parse import urlparse
+from dotenv import load_dotenv
+from providers import MODES, ProviderError, choose_move, player_profiles
 
-# Import the model functions
-from openai_model_v1 import call_chatgpt
-from anthropic_model_v1 import call_claude
+load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
+app.secret_key = os.getenv('FLASK_SECRET_KEY') or os.urandom(24)
+app.config['TEST_MODE'] = os.getenv('ARENA_TEST_MODE', '').lower() in ('1', 'true', 'yes')
+app.config['TRUSTED_HOSTS'] = ['localhost', '127.0.0.1', '[::1]']
+app.config['MAX_CONTENT_LENGTH'] = 16384
+
+
+@app.before_request
+def local_requests_only():
+    if request.method == 'POST' and request.headers.get('Origin'):
+        if urlparse(request.headers['Origin']).netloc != request.host:
+            return jsonify({'error': 'Use the app from its own localhost page.'}), 403
+
+
+def effective_mode(mode=None):
+    return 'test' if app.config['TEST_MODE'] else (mode or 'local')
+
+
+@app.route('/api/config')
+def configuration():
+    return jsonify({
+        'default_mode': effective_mode(), 'test_only': app.config['TEST_MODE'],
+        'profiles': {mode: player_profiles(mode) for mode in MODES},
+    })
 
 # Board coordinate mapping
 COORDS = ['A1', 'B1', 'C1', 'A2', 'B2', 'C2', 'A3', 'B3', 'C3']
 
-def init_game_state():
+def init_game_state(mode=None):
     """Initialize a fresh game state."""
     # Randomly assign X/O to models
     gpt_is_x = random.choice([True, False])
     return {
         'board': {coord: '.' for coord in COORDS},
+        'mode': effective_mode(mode),
         'gpt_mark': 'X' if gpt_is_x else 'O',
         'claude_mark': 'O' if gpt_is_x else 'X',
         'current_turn': 'X',  # X always goes first
@@ -60,7 +85,7 @@ A1 B1 C1
 A2 B2 C2
 A3 B3 C3
 
-Your turn. Output one move only.
+Your turn. Choose one legal move. Empty squares are marked with a dot.
 
 Here is the board state:
 
@@ -98,11 +123,19 @@ def index():
 @app.route('/api/start-games', methods=['POST'])
 def start_games():
     """Start a new series of games."""
-    data = request.get_json()
-    num_games = int(data.get('num_games', 1))
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'error': 'Send a JSON object with num_games and mode.'}), 400
+    try:
+        num_games = int(data.get('num_games', 1))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Number of games must be an integer.'}), 400
+    mode = effective_mode(data.get('mode'))
+    if mode not in MODES:
+        return jsonify({'error': 'Choose Local, API, or Test mode.'}), 400
     num_games = max(1, min(10, num_games))  # Clamp to 1-10
     
-    state = init_game_state()
+    state = init_game_state(mode)
     state['total_games'] = num_games
     session['game_state'] = state
     
@@ -132,36 +165,20 @@ def next_move():
     
     current_turn = state['current_turn']
     
-    # Determine which model's turn
-    if state['gpt_mark'] == current_turn:
-        model = 'gpt'
-        prompt = board_to_string(state['board'], current_turn)
-        
-        start_time = time.time()
-        try:
-            move, reasoning = call_chatgpt(prompt)
-        except Exception as e:
-            return jsonify({'error': f'GPT API error: {str(e)}'}), 500
-        elapsed = time.time() - start_time
-        
-        state['gpt_reasoning'] = reasoning or 'No reasoning provided.'
-        state['gpt_last_time'] = round(elapsed, 2)
-        state['gpt_total_time'] = round(state['gpt_total_time'] + elapsed, 2)
-    else:
-        model = 'claude'
-        prompt = board_to_string(state['board'], current_turn)
-        
-        start_time = time.time()
-        try:
-            move, reasoning = call_claude(prompt)
-        except Exception as e:
-            return jsonify({'error': f'Claude API error: {str(e)}'}), 500
-        elapsed = time.time() - start_time
-        
-        state['claude_reasoning'] = reasoning or 'No reasoning provided.'
-        state['claude_last_time'] = round(elapsed, 2)
-        state['claude_total_time'] = round(state['claude_total_time'] + elapsed, 2)
-    
+    model = 'gpt' if state['gpt_mark'] == current_turn else 'claude'
+    mode = effective_mode(state.get('mode'))
+    state['mode'] = mode
+    prompt = board_to_string(state['board'], current_turn)
+    start_time = time.monotonic()
+    try:
+        move, reasoning = choose_move(mode, model, prompt, state['board'])
+    except ProviderError as error:
+        return jsonify({'error': str(error)}), 502
+    elapsed = time.monotonic() - start_time
+    state[model + '_reasoning'] = (reasoning or 'No explanation provided.')[:600]
+    state[model + '_last_time'] = round(elapsed, 2)
+    state[model + '_total_time'] = round(state[model + '_total_time'] + elapsed, 2)
+
     # Validate and apply move
     if move not in COORDS or state['board'][move] != '.':
         return jsonify({'error': f'Invalid move: {move}'}), 400
@@ -182,17 +199,19 @@ def next_move():
         elif result == state['gpt_mark']:
             state['gpt_stats']['wins'] += 1
             state['claude_stats']['losses'] += 1
-            winner_name = 'GPT 5.2 High'
+            winner_name = player_profiles(mode)['gpt']['name']
         else:
             state['claude_stats']['wins'] += 1
             state['gpt_stats']['losses'] += 1
-            winner_name = 'Claude Opus 4.5 Thinking'
+            winner_name = player_profiles(mode)['claude']['name']
         
         # Add to history with timing data
         state['game_history'].append({
             'game': state['current_game'],
             'time': datetime.now().strftime('%H:%M:%S'),
             'winner': winner_name,
+            'winner_model': None if result == 'draw' else model,
+            'mode': mode,
             'gpt_time': state['gpt_total_time'],
             'claude_time': state['claude_total_time']
         })
@@ -216,6 +235,9 @@ def next_game():
     if not state:
         return jsonify({'error': 'No game in progress'}), 400
     
+    if not state['game_over']:
+        return jsonify({'error': 'Finish this game before starting the next one.'}), 400
+
     if state['current_game'] >= state['total_games']:
         return jsonify({'error': 'All games completed'}), 400
     
@@ -265,6 +287,8 @@ def get_client_state(state):
     
     return {
         'board': state['board'],
+        'mode': effective_mode(state.get('mode')),
+        'players': player_profiles(effective_mode(state.get('mode'))),
         'gpt_mark': state['gpt_mark'],
         'claude_mark': state['claude_mark'],
         'current_turn': state['current_turn'],
@@ -287,4 +311,10 @@ def get_client_state(state):
     }
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5001)
+    parser = argparse.ArgumentParser(description='AI Arena — local CLI, optional API, or Test players')
+    parser.add_argument('--test', action='store_true', help='Force Test mode; never call real LLMs')
+    parser.add_argument('--port', type=int, default=5001)
+    args = parser.parse_args()
+    if args.test:
+        app.config['TEST_MODE'] = True
+    app.run(host='127.0.0.1', debug=False, port=args.port)

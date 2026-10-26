@@ -13,3 +13,8 @@ __pycache__/
 # mac / editor
 .DS_Store
 .vscode/
+
+# Node dependencies and browser test output
+node_modules/
+test-results/
+playwright-report/
