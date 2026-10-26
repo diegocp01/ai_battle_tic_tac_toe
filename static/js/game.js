@@ -68,7 +68,7 @@ function updateEffortLabel(key) {
     const text = effortLabels[value] || value;
     $(key + '-effort-value').textContent = effortLevels[key].length > 1 ? text
         : $('play-mode').value === 'test' ? 'Not used' : !selectedModel(key) ? 'Unavailable'
-        : $(key + '-model').value === 'default' ? 'CLI default' : 'Not supported';
+        : 'Not supported';
     $(key + '-effort').setAttribute('aria-valuetext', $(key + '-effort-value').textContent);
 }
 
@@ -85,7 +85,7 @@ function populateEffort(key, preferred) {
 }
 
 function populateModels(selectedMode, preferred = {}) {
-    const saved = preferences.models?.[selectedMode] || {};
+    const saved = selectedMode === 'local' ? {} : preferences.models?.[selectedMode] || {};
     for (const key of Object.keys(names)) {
         const info = configuration.models[selectedMode][key];
         const select = $(key + '-model');
@@ -134,6 +134,7 @@ async function newMatch() {
         $('setup').classList.remove('hidden');
         document.querySelector('.skip-link').href = '#setup';
         document.querySelector('.skip-link').textContent = 'Skip to setup';
+        populateModels($('play-mode').value);
         setMode('idle');
         $('setup-title').focus({preventScroll: true});
         window.scrollTo(0, 0);

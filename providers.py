@@ -60,41 +60,67 @@ def _option(model_id, name, efforts=(), default_effort='default'):
             'effort_supported': len(levels) > 1}
 
 
-def codex_model_catalog(cache=None):
-    """Read supported reasoning levels from the installed Codex metadata cache."""
-    codex = [_option('default', 'CLI default')]
-    cache = Path(cache) if cache else Path(os.getenv('CODEX_HOME') or Path.home() / '.codex') / 'models_cache.json'
-    try:
-        if cache.stat().st_size <= 1_000_000:
-            cached = json.loads(cache.read_text())
-            for item in cached.get('models', []):
-                if not isinstance(item, dict) or item.get('visibility') == 'hide':
-                    continue
-                model_id = item.get('slug', '')
-                if isinstance(model_id, str) and re.fullmatch(r'[a-zA-Z0-9_.:-]{1,100}', model_id):
-                    efforts = [level.get('effort') for level in item.get('supported_reasoning_levels', [])
-                               if isinstance(level, dict) and level.get('effort') in VALID_EFFORTS]
-                    codex.append(_option(model_id, str(item.get('display_name') or model_id)[:100], efforts, item.get('default_reasoning_level')))
-    except (OSError, ValueError, AttributeError):
-        pass
-    configured = os.getenv('CODEX_MODEL', '')
-    if re.fullmatch(r'[a-zA-Z0-9_.:-]{1,100}', configured):
-        if configured not in [item['id'] for item in codex]:
-            codex.append(_option(configured, configured))
-        codex_default = configured
-    else:
-        codex_default = 'default'
-    return {'models': codex, 'default': codex_default}
+def newest_family(models, family):
+    candidates = []
+    for model in models:
+        model_id = model['id']
+        pattern = r'^gpt-(\d+(?:[.-]\d+)*)-' + re.escape(family) + r'$' if family == 'luna' else r'^claude-' + re.escape(family) + r'-(\d+(?:[.-]\d+)*)(?:\[1m\])?$'
+        match = re.fullmatch(pattern, model_id)
+        if match:
+            candidates.append((tuple(int(part) for part in re.split(r'[.-]', match.group(1))), not model_id.endswith('[1m]'), model_id))
+    return max(candidates)[2] if candidates else None
+
+
+@lru_cache(maxsize=8)
+def _live_codex_models(node, runtime, period):
+    return run_process([node, str(ROOT / 'bridges/codex-models.mjs')], '', 'Codex model discovery', timeout=15)
+
+
+def codex_model_catalog(cache=None, discover=True):
+    """Read all picker-visible models from the same CLI runtime used by the SDK."""
+    reported, live = [], False
+    node = shutil.which('node')
+    if discover and cache is None and node and (ROOT / 'node_modules/@openai/codex').is_dir():
+        try:
+            reported = _live_codex_models(node, os.getenv('CODEX_CLI_PATH', 'sdk-bundled'), int(time.monotonic() // 300))
+            if not isinstance(reported, list):
+                raise ProviderError('Invalid Codex model list.')
+            live = True
+        except ProviderError:
+            pass
+    if not live:
+        cache = Path(cache) if cache else Path(os.getenv('CODEX_HOME') or Path.home() / '.codex') / 'models_cache.json'
+        try:
+            if cache.stat().st_size <= 1_000_000:
+                reported = json.loads(cache.read_text()).get('models', [])
+        except (OSError, ValueError, AttributeError):
+            pass
+    models = []
+    for item in reported if isinstance(reported, list) else []:
+        if not isinstance(item, dict) or item.get('visibility') == 'hide' or item.get('hidden'):
+            continue
+        model_id = item.get('model') or item.get('slug') or item.get('id')
+        if not isinstance(model_id, str) or not re.fullmatch(r'[a-zA-Z0-9_.:-]{1,100}', model_id) or model_id == 'default':
+            continue
+        if any(model['id'] == model_id for model in models):
+            continue
+        capabilities = item.get('supportedReasoningEfforts', item.get('supported_reasoning_levels', []))
+        efforts = [level.get('reasoningEffort', level.get('effort')) for level in capabilities
+                   if isinstance(level, dict) and level.get('reasoningEffort', level.get('effort')) in VALID_EFFORTS]
+        models.append(_option(model_id, str(item.get('displayName') or item.get('display_name') or model_id)[:100], efforts,
+                              item.get('defaultReasoningEffort', item.get('default_reasoning_level'))))
+    default = newest_family(models, 'luna') or (models[0]['id'] if models else '')
+    message = '' if newest_family(models, 'luna') else ('Luna is not in the CLI model list. Choose an available model.' if models else 'No Codex models reported. Sign in to Codex and reload.')
+    return {'models': models, 'default': default, 'aliases': {'default': default} if default else {}, 'message': message}
 
 
 def model_catalog(discover=True):
     """Use CLI metadata only. Discovery initializes Claude without sending a prompt."""
-    codex = codex_model_catalog()
+    codex = codex_model_catalog(discover=discover)
     claude = claude_model_catalog() if discover else {'models': [], 'default': '', 'aliases': {}, 'message': ''}
-    configured_claude = os.getenv('CLAUDE_MODEL', '')
-    resolved = claude.get('aliases', {}).get(configured_claude, configured_claude)
-    if resolved in [item['id'] for item in claude['models']]:
-        claude = {**claude, 'default': resolved}
+    haiku = newest_family(claude['models'], 'haiku')
+    if haiku:
+        claude = {**claude, 'default': haiku}
     return {
         'local': {'gpt': codex, 'claude': claude},
         'api': {

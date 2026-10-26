@@ -233,8 +233,8 @@ class AdapterTests(unittest.TestCase):
             options = providers.codex_model_catalog(cache)['models']
             self.assertIn('fixture-model', [item['id'] for item in options])
             self.assertNotIn('hidden-model', [item['id'] for item in options])
-            self.assertEqual(options[1]['efforts'], ['default', 'low', 'high'])
-            self.assertEqual(options[1]['default_effort'], 'low')
+            self.assertEqual(options[0]['efforts'], ['default', 'low', 'high'])
+            self.assertEqual(options[0]['default_effort'], 'low')
 
     def test_missing_cli_actionable_message(self):
         with patch('providers.shutil.which', return_value=None):

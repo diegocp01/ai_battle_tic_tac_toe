@@ -94,7 +94,7 @@ test('model selections reach the backend, survive errors, and can be changed in 
     await expect(page.locator('#error-message')).toContainText('real LLM calls are disabled');
     await page.click('#btn-new');
     await expect(page.locator('#setup')).toBeVisible();
-    await expect(page.locator('#claude-model')).toHaveValue('claude-sonnet-5-5');
+    await expect(page.locator('#claude-model')).toHaveValue('claude-haiku-4-5-20251001');
     await page.selectOption('#play-mode', 'api');
     await expect(page.locator('#gpt-model')).toHaveValue('gpt-5.2');
     await expect(page.locator('#mode-description')).toContainText('API keys');
@@ -103,6 +103,24 @@ test('model selections reach the backend, survive errors, and can be changed in 
     await expect(page.locator('#session-title')).toHaveText('Series complete');
     await expect(page.locator('#gpt-name')).toHaveText('Test player A');
     if (process.env.ARENA_SCREENSHOTS) await page.screenshot({path: 'static/img/match.png', fullPage: true});
+});
+
+test('Local CLIs always opens with newest reported Luna and Haiku, without a default placeholder', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('tic-tac-toe-settings', JSON.stringify({
+        mode: 'local', models: {local: {gpt_model: 'fixture-codex', claude_model: 'claude-opus-5-5', gpt_effort: 'ultra', claude_effort: 'max'}},
+    })));
+    await ready(page, 'http://127.0.0.1:5085');
+    await expect(page.locator('#gpt-model')).toHaveValue('gpt-6-luna');
+    await expect(page.locator('#claude-model')).toHaveValue('claude-haiku-4-5-20251001');
+    expect(await page.locator('#gpt-model option').allTextContents()).toEqual(['GPT-6-Luna', 'Fixture Codex']);
+    expect(await page.locator('#gpt-model option[value="default"]').count()).toBe(0);
+    await expect(page.locator('#gpt-effort-value')).toHaveText('Low');
+    await page.selectOption('#gpt-model', 'fixture-codex');
+    await page.selectOption('#claude-model', 'claude-opus-5-5');
+    await page.selectOption('#play-mode', 'test');
+    await page.selectOption('#play-mode', 'local');
+    await expect(page.locator('#gpt-model')).toHaveValue('gpt-6-luna');
+    await expect(page.locator('#claude-model')).toHaveValue('claude-haiku-4-5-20251001');
 });
 
 test('exact model names and independent effort sliders are submitted and restored', async ({ page }) => {
@@ -132,9 +150,12 @@ test('exact model names and independent effort sliders are submitted and restore
     await expect(page.locator('#claude-mode')).toContainText('max effort');
     await page.reload();
     await expect(page.locator('#session-title')).toHaveText('Match paused');
+    await expect(page.locator('#gpt-mode')).toContainText('ultra effort');
+    await expect(page.locator('#claude-mode')).toContainText('max effort');
     await page.click('#btn-new');
-    await expect(page.locator('#gpt-effort-value')).toHaveText('Ultra');
-    await expect(page.locator('#claude-effort-value')).toHaveText('Max');
+    await expect(page.locator('#gpt-model')).toHaveValue('gpt-6-luna');
+    await expect(page.locator('#gpt-effort-value')).toHaveText('Low');
+    await expect(page.locator('#claude-effort-value')).toHaveText('Not supported');
     await page.selectOption('#play-mode', 'test');
     await expect(page.locator('#gpt-effort')).toBeDisabled();
     await expect(page.locator('#claude-effort')).toBeDisabled();
