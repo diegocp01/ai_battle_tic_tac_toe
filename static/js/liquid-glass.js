@@ -3,7 +3,7 @@
 // bends through a thick glass lens. The stylesheet marks surfaces with --lg-depth (the strongest bend,
 // in px) and --lg-blur; other browsers keep the stylesheet's plain blur.
 (() => {
-    const surfaces = '.setup-connection, .rounds-pick, .player-pick, .versus, .test-badge, .start-button, .arena-toolbar, .match-controls, .model-panel, .model-info, .board, .match-disclosure, .error-banner';
+    const surfaces = '.setup-connection, .rounds-pick, .player-pick, .versus, .test-badge, .start-button, .universal-stats, .arena-toolbar, .match-controls, .model-panel, .model-info, .board, .match-disclosure, .error-banner';
     const chromium = navigator.userAgentData?.brands?.some(({brand}) => brand === 'Chromium');
     if (!chromium || matchMedia('(prefers-reduced-transparency: reduce)').matches) return;
 

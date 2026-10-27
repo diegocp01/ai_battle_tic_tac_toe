@@ -32,6 +32,16 @@
                 <div class="rounds-pick"><label for="game-count">Rounds</label><select id="game-count">{% for count in range(1, 11) %}<option value="{{ count }}" {% if count == 3 %}selected{% endif %}>{{ count }}</option>{% endfor %}</select></div>
                 <button id="btn-run" class="button primary start-button" type="submit" disabled><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M5 3.5 12 8l-7 4.5z" fill="currentColor"/></svg><span>Start match</span></button>
             </form>
+            <section class="universal-stats" aria-labelledby="universal-title">
+                <div class="universal-heading"><h2 id="universal-title">Universal stats</h2><span id="universal-meta" class="universal-meta">0 matches · 0 rounds</span></div>
+                <div class="universal-tally">
+                    <div class="universal-side"><span class="pip" data-result="gpt"></span><span><b data-match-total="gpt">0</b><small>Codex matches won</small></span></div>
+                    <div class="universal-draws"><b data-match-total="tie">0</b><small>Tied matches</small></div>
+                    <div class="universal-side claude-total"><span><b data-match-total="claude">0</b><small>Claude matches won</small></span><span class="pip" data-result="claude"></span></div>
+                </div>
+                <p id="universal-rounds" class="universal-rounds">Rounds · Codex 0 · Draws 0 · Claude 0</p>
+                <ol id="universal-matches" class="universal-matches hidden" aria-label="Every saved match, newest first"></ol>
+            </section>
         </section>
         <div id="match-view" class="match-view hidden">
             <section id="arena" class="arena" aria-label="AI match arena" tabindex="-1">
@@ -84,7 +94,7 @@
             </section>
             <div class="match-disclosures">
                 <details id="history" class="match-disclosure history-section">
-                    <summary><span id="history-title">Match history</span><span id="history-count" class="count-badge">0 matches</span><span id="overall-score" class="overall-score" aria-label="All-time rounds won: Codex 0, Claude 0, 0 draws"><span class="overall-label">All-time</span><span class="tally" title="Codex rounds won"><span class="pip" data-result="gpt"></span><b id="overall-gpt">0</b></span><span class="tally draw-tally" title="Draws"><b id="overall-draw">0</b> draws</span><span class="tally" title="Claude rounds won"><b id="overall-claude">0</b><span class="pip" data-result="claude"></span></span></span></summary>
+                    <summary><span id="history-title">Match history</span><span id="history-count" class="count-badge">0 matches</span><span id="overall-score" class="overall-score" aria-label="All-time matches: Codex won 0, Claude won 0, 0 tied"><span class="overall-label">All-time</span><span class="tally" title="Codex matches won"><span class="pip" data-result="gpt"></span><b id="overall-gpt" data-match-total="gpt">0</b></span><span class="tally draw-tally" title="Tied matches"><b id="overall-draw" data-match-total="tie">0</b> tied</span><span class="tally" title="Claude matches won"><b id="overall-claude" data-match-total="claude">0</b><span class="pip" data-result="claude"></span></span></span></summary>
                     <div class="history-card"><p id="history-empty" class="history-empty">No matches yet.</p><div id="history-table-wrap" class="table-wrap hidden" tabindex="0" role="region" aria-label="All match history"><table class="stats-table"><thead><tr><th scope="col">Last round</th><th scope="col">Players</th><th scope="col">Rounds</th><th scope="col">Score</th></tr></thead><tbody id="stats-body"></tbody></table></div></div>
                 </details>
             </div>

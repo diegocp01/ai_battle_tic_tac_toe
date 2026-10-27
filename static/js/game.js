@@ -330,27 +330,90 @@ async function loadMatchHistory() {
     }
 }
 
-// Saved rounds are grouped back into their matches, newest first; the all-time tally counts every saved round.
-function renderHistory(rounds, totals = {gpt: 0, claude: 0, draw: 0}) {
+// A player as the archive saved them, with the effort they played at.
+function playerLabel(name, effort) {
+    return effort && effort !== 'default' ? `${name} · ${effortLabels[effort] || effort}` : name;
+}
+
+// Saved rounds grouped back into their matches. A match is decided by rounds won; it only counts once all its rounds are saved.
+function summarizeMatches(rounds) {
     const matches = new Map();
     for (const entry of rounds) {
-        const match = matches.get(entry.match_id) || {rounds: [], total: entry.rounds_total, players: [entry.gpt_name, entry.claude_name]};
+        const match = matches.get(entry.match_id) || {rounds: [], total: entry.rounds_total,
+            players: [playerLabel(entry.gpt_name, entry.gpt_effort), playerLabel(entry.claude_name, entry.claude_effort)]};
         match.rounds.push(entry);
         matches.set(entry.match_id, match);
     }
-    $('history-empty').textContent = 'No matches yet.';
-    $('history-empty').classList.toggle('hidden', matches.size > 0);
-    $('history-table-wrap').classList.toggle('hidden', matches.size === 0);
-    $('history-count').textContent = matches.size + (matches.size === 1 ? ' match' : ' matches');
-    for (const key of ['gpt', 'claude', 'draw']) $('overall-' + key).textContent = totals[key] || 0;
-    $('overall-score').setAttribute('aria-label', `All-time rounds won: Codex ${totals.gpt || 0}, Claude ${totals.claude || 0}, ${totals.draw || 0} draws`);
-    $('stats-body').replaceChildren();
-    for (const match of [...matches.values()].reverse()) {
-        const row = document.createElement('tr');
+    return [...matches.values()].map(match => {
         const won = {gpt: 0, claude: 0, draw: 0};
         for (const entry of match.rounds) if (entry.winner in won) won[entry.winner]++;
-        const score = won.gpt + '–' + won.claude + (won.draw ? ` · ${won.draw} draw${won.draw === 1 ? '' : 's'}` : '');
-        const values = [match.rounds.at(-1).finished_at || '—', match.players.filter(Boolean).join(' vs ') || '—', match.rounds.length + ' of ' + (match.total ?? '—'), score];
+        const winner = match.rounds.length < (match.total || 0) ? 'unfinished' : won.gpt === won.claude ? 'tie' : won.gpt > won.claude ? 'gpt' : 'claude';
+        return {...match, won, winner, finished: match.rounds.at(-1).finished_at || '—'};
+    });
+}
+
+function roundPips(match) {
+    const pips = document.createElement('span');
+    pips.className = 'round-pips';
+    for (let round = 1; round <= Math.max(match.total || 0, match.rounds.length); round++) {
+        const pip = document.createElement('span');
+        pip.className = 'pip';
+        pip.dataset.result = match.rounds.find(entry => entry.round === round)?.winner || 'pending';
+        pips.appendChild(pip);
+    }
+    return pips;
+}
+
+// One row per match on the setup page: who won it, the players, a marker per round, and the score.
+function renderUniversalMatches(matches) {
+    const rows = [...matches].reverse().map(match => {
+        const row = document.createElement('li');
+        row.className = 'universal-match';
+        const badge = document.createElement('span');
+        badge.className = 'match-badge';
+        badge.dataset.winner = match.winner;
+        if (match.winner === 'gpt' || match.winner === 'claude') {
+            const pip = document.createElement('span');
+            pip.className = 'pip';
+            pip.dataset.result = match.winner;
+            badge.appendChild(pip);
+        } else badge.textContent = match.winner === 'tie' ? 'Tie' : '…';
+        badge.title = ({gpt: 'Codex won the match', claude: 'Claude won the match', tie: 'Tied match', unfinished: 'Unfinished match'})[match.winner];
+        const info = document.createElement('span');
+        info.className = 'match-players';
+        const names = document.createElement('b');
+        names.textContent = match.players.filter(Boolean).join(' vs ');
+        const when = document.createElement('small');
+        when.textContent = `${match.finished} · ${match.rounds.length} of ${match.total ?? '—'} rounds`;
+        info.append(names, when);
+        const score = document.createElement('span');
+        score.className = 'match-score';
+        score.textContent = `${match.won.gpt}–${match.won.claude}`;
+        row.append(badge, info, roundPips(match), score);
+        return row;
+    });
+    $('universal-matches').replaceChildren(...rows);
+    $('universal-matches').classList.toggle('hidden', rows.length === 0);
+}
+
+function renderHistory(rounds, totals = {gpt: 0, claude: 0, draw: 0}) {
+    const matches = summarizeMatches(rounds);
+    const decided = {gpt: 0, claude: 0, tie: 0};
+    for (const match of matches) if (match.winner in decided) decided[match.winner]++;
+    $('history-empty').textContent = 'No matches yet.';
+    $('history-empty').classList.toggle('hidden', matches.length > 0);
+    $('history-table-wrap').classList.toggle('hidden', matches.length === 0);
+    $('history-count').textContent = matches.length + (matches.length === 1 ? ' match' : ' matches');
+    for (const element of document.querySelectorAll('[data-match-total]')) element.textContent = decided[element.dataset.matchTotal];
+    $('universal-meta').textContent = `${$('history-count').textContent} · ${rounds.length} ${rounds.length === 1 ? 'round' : 'rounds'}`;
+    $('universal-rounds').textContent = `Rounds · Codex ${totals.gpt || 0} · Draws ${totals.draw || 0} · Claude ${totals.claude || 0}`;
+    $('overall-score').setAttribute('aria-label', `All-time matches: Codex won ${decided.gpt}, Claude won ${decided.claude}, ${decided.tie} tied`);
+    renderUniversalMatches(matches);
+    $('stats-body').replaceChildren();
+    for (const match of [...matches].reverse()) {
+        const row = document.createElement('tr');
+        const score = match.won.gpt + '–' + match.won.claude + (match.won.draw ? ` · ${match.won.draw} draw${match.won.draw === 1 ? '' : 's'}` : '');
+        const values = [match.finished, match.players.filter(Boolean).join(' vs ') || '—', match.rounds.length + ' of ' + (match.total ?? '—'), score];
         for (const value of values) {
             const cell = document.createElement('td');
             cell.textContent = value;
@@ -471,6 +534,7 @@ for (const key of Object.keys(names)) {
 }
 
 async function restoreSession() {
+    loadMatchHistory();
     setMode('loading');
     try {
         configuration = await request('config');
