@@ -284,23 +284,45 @@ test('quiet side panels flank the board; the only bottom section is global histo
     expect(errors).toEqual([]);
 });
 
-test('history reads the global archive rather than completed rounds and safely renders text', async ({ page }) => {
-    await page.route('**/api/match-history', route => route.fulfill({json: {matches: [{
-        finished_at: '2026-10-20 10:00', gpt_name: '<img src=x onerror=alert(1)>', claude_name: 'Archive Claude', rounds: 3, result: 'Draw',
-    }]}}));
+test('universal stats count matches, list each match by round, and safely render text', async ({ page }) => {
+    const a = {match_id: 'a1', rounds_total: 3, finished_at: '2026-10-20 10:00', gpt_name: '<img src=x onerror=alert(1)>', claude_name: 'Archive Claude', gpt_effort: 'low', claude_effort: 'low'};
+    const b = {match_id: 'b2', rounds_total: 2, finished_at: '2026-10-21 09:00', gpt_name: 'Archive Codex', claude_name: 'Archive Claude'};
+    const c = {match_id: 'c3', rounds_total: 3, finished_at: '2026-10-22 08:00', gpt_name: 'Archive Codex', claude_name: 'Archive Claude'};
+    await page.route('**/api/match-history', route => route.fulfill({json: {
+        rounds: [{...a, round: 1, winner: 'gpt'}, {...a, round: 2, winner: 'draw'}, {...a, round: 3, winner: 'draw'},
+                 {...b, round: 1, winner: 'claude'}, {...b, round: 2, winner: 'gpt'}, {...c, round: 1, winner: 'draw'}],
+        totals: {gpt: 2, claude: 1, draw: 3},
+    }}));
     await ready(page);
+    const universal = page.locator('.universal-stats');
+    await expect(universal.locator('[data-match-total="gpt"]')).toHaveText('1');
+    await expect(universal.locator('[data-match-total="tie"]')).toHaveText('1');
+    await expect(universal.locator('[data-match-total="claude"]')).toHaveText('0');
+    await expect(page.locator('#universal-meta')).toHaveText('3 matches · 6 rounds');
+    await expect(page.locator('#universal-rounds')).toHaveText('Rounds · Codex 2 · Draws 3 · Claude 1');
+    const rows = page.locator('.universal-match');
+    await expect(rows).toHaveCount(3);
+    await expect(rows.nth(0).locator('.match-badge')).toHaveAttribute('data-winner', 'unfinished');
+    await expect(rows.nth(1).locator('.match-badge')).toHaveAttribute('data-winner', 'tie');
+    await expect(rows.nth(2).locator('.match-badge')).toHaveAttribute('data-winner', 'gpt');
+    await expect(rows.nth(2).locator('.round-pips .pip')).toHaveCount(3);
+    await expect(rows.nth(2)).toContainText('<img src=x onerror=alert(1)> · Low vs Archive Claude · Low');
+    await expect(rows.nth(2).locator('.match-score')).toHaveText('1–0');
+    await expect(universal.locator('img')).toHaveCount(0);
     await start(page, '2');
     await expect(page.locator('#session-title')).toHaveText('Series complete');
-    await expect(page.locator('#history-count')).toHaveText('1 match');
+    await expect(page.locator('#history-count')).toHaveText('3 matches');
     await page.locator('#history > summary').click();
-    await expect(page.locator('#stats-body tr')).toHaveCount(1);
-    await expect(page.locator('#stats-body')).toContainText('Archive Claude');
-    await expect(page.locator('#stats-body')).toContainText('<img src=x onerror=alert(1)>');
+    await expect(page.locator('#stats-body tr')).toHaveCount(3);
+    await expect(page.locator('#stats-body')).toContainText('1–0 · 2 draws');
+    await expect(page.locator('#overall-gpt')).toHaveText('1');
+    await expect(page.locator('#overall-claude')).toHaveText('0');
+    await expect(page.locator('#overall-draw')).toHaveText('1');
     await expect(page.locator('#stats-body img')).toHaveCount(0);
     await page.click('#btn-new');
     await start(page);
     await expect(page.locator('#session-title')).toHaveText('Series complete');
-    await expect(page.locator('#history-count')).toHaveText('1 match');
+    await expect(page.locator('#history-count')).toHaveText('3 matches');
 });
 
 test('unavailable history does not interrupt a match', async ({ page }) => {

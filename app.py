@@ -3,6 +3,8 @@ import random
 from datetime import datetime
 import time
 import os
+import threading
+import uuid
 import argparse
 import json
 import plistlib
@@ -19,7 +21,9 @@ app.secret_key = os.getenv('FLASK_SECRET_KEY') or os.urandom(24)
 app.config['TEST_MODE'] = os.getenv('ARENA_TEST_MODE', '').lower() in ('1', 'true', 'yes')
 app.config['TRUSTED_HOSTS'] = ['localhost', '127.0.0.1', '[::1]']
 app.config['MAX_CONTENT_LENGTH'] = 16384
-MATCH_HISTORY_PATH = Path(__file__).resolve().parent / 'data' / 'match-history.json'
+# Every real (non-test) round is saved here as it ends; the file is local data, not tracked in git.
+MATCH_HISTORY_PATH = Path(os.getenv('ARENA_HISTORY_PATH') or Path(__file__).resolve().parent / 'data' / 'round-history.json')
+history_lock = threading.Lock()
 WALLPAPER_STORE = Path.home() / 'Library' / 'Application Support' / 'com.apple.wallpaper'
 
 
@@ -42,16 +46,53 @@ def configuration():
         'models': model_catalog(discover=not app.config['TEST_MODE']),
     })
 
-@app.route('/api/match-history')
-def match_history():
-    """Read the global archive. Playing a match never writes to this file."""
+def read_round_history():
+    """All saved rounds. A missing file is an empty history; a damaged one raises ValueError and is left untouched."""
     try:
         archive = json.loads(MATCH_HISTORY_PATH.read_text())
-        if not isinstance(archive, dict) or not isinstance(archive.get('matches'), list) or not all(isinstance(match, dict) for match in archive['matches']):
-            raise ValueError('Invalid match archive')
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        return []
+    except OSError as error:
+        raise ValueError('Round history is unreadable') from error
+    if not isinstance(archive, dict) or not isinstance(archive.get('rounds'), list) or not all(isinstance(entry, dict) for entry in archive['rounds']):
+        raise ValueError('Invalid round history')
+    return archive['rounds']
+
+
+def init_round_history():
+    """Create the local round history on first start, so the all-time count begins at zero on this machine."""
+    with history_lock:
+        if not MATCH_HISTORY_PATH.exists():
+            MATCH_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+            MATCH_HISTORY_PATH.write_text(json.dumps({'rounds': []}, indent=2) + '\n')
+
+
+def save_round(entry):
+    """Append one finished round, writing the file atomically so a crash never leaves it half-written."""
+    with history_lock:
+        try:
+            rounds = read_round_history()
+        except ValueError:
+            app.logger.warning('Round history at %s is damaged; this round was not saved.', MATCH_HISTORY_PATH)
+            return
+        MATCH_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temporary = MATCH_HISTORY_PATH.with_suffix('.tmp')
+        temporary.write_text(json.dumps({'rounds': rounds + [entry]}, indent=2) + '\n')
+        os.replace(temporary, MATCH_HISTORY_PATH)
+
+
+@app.route('/api/match-history')
+def match_history():
+    """Saved rounds from every real match, plus the all-time tally of rounds won."""
+    try:
+        rounds = read_round_history()
+    except ValueError:
         return jsonify({'error': 'Match history is unavailable.'}), 503
-    response = jsonify({'matches': archive['matches']})
+    totals = {'gpt': 0, 'claude': 0, 'draw': 0}
+    for entry in rounds:
+        if entry.get('winner') in totals:
+            totals[entry['winner']] += 1
+    response = jsonify({'rounds': rounds, 'totals': totals})
     response.cache_control.no_store = True
     return response
 
@@ -96,6 +137,7 @@ def init_game_state(mode=None):
         'claude_mark': 'O',
         'current_turn': first,
         'round_starter': first,
+        'moves': [],
         'game_over': False,
         'winner': None,
         'gpt_reasoning': '',
@@ -112,7 +154,28 @@ def init_game_state(mode=None):
         'claude_last_time': 0.0,
     }
 
-def board_to_string(board, player_mark):
+SUMMARY_WORD_LIMIT = 100
+
+
+def previous_rounds_summary(history):
+    """Earlier rounds of this match, as a human would remember them: identical for both players, at most 100 words.
+
+    Keeps the most recent rounds that fit; each lists who moved first, every square in play order, and the result.
+    """
+    header = 'Earlier rounds this match (squares in play order; marks alternate from the first mover):'
+    lines = []
+    for entry in reversed(history):
+        if not entry.get('moves'):
+            continue
+        result = 'Draw.' if entry.get('result') == 'draw' else f"{entry.get('result')} won."
+        line = f"Round {entry['game']}: {entry['first']} first: {' '.join(entry['moves'])}. {result}"
+        if len(' '.join([header, line, *lines]).split()) > SUMMARY_WORD_LIMIT:
+            break
+        lines.insert(0, line)
+    return '\n'.join([header, *lines]) if lines else ''
+
+
+def board_to_string(board, player_mark, earlier_rounds=''):
     """Convert board dict to string prompt for the models."""
     lines = []
     for row in [1, 2, 3]:
@@ -122,9 +185,10 @@ def board_to_string(board, player_mark):
             row_parts.append(f"{coord}={board[coord]}")
         lines.append(", ".join(row_parts))
     
+    memory = f"{earlier_rounds}\n\n" if earlier_rounds else ''
     return f"""You are {player_mark}.
 
-Coordinates:
+{memory}Coordinates:
 Rows: 1,2,3
 Cols: A,B,C
 
@@ -191,6 +255,7 @@ def start_games():
     state.update(selected)
     state['started'] = True
     state['total_games'] = num_games
+    state['match_id'] = uuid.uuid4().hex[:12]
     session['game_state'] = state
     
     return jsonify({
@@ -228,7 +293,7 @@ def next_move():
     model = 'gpt' if state['gpt_mark'] == current_turn else 'claude'
     mode = effective_mode(state.get('mode'))
     state['mode'] = mode
-    prompt = board_to_string(state['board'], current_turn)
+    prompt = board_to_string(state['board'], current_turn, previous_rounds_summary(state['game_history']))
     start_time = time.monotonic()
     try:
         move, reasoning = choose_move(mode, model, prompt, state['board'], selected_model=state.get(model + '_model'), effort=state.get(model + '_effort'))
@@ -244,6 +309,7 @@ def next_move():
         return jsonify({'error': f'Invalid move: {move}'}), 400
     
     state['board'][move] = current_turn
+    state.setdefault('moves', []).append(move)
     
     # Check for winner
     result = check_winner(state['board'])
@@ -273,8 +339,30 @@ def next_move():
             'winner_model': None if result == 'draw' else model,
             'mode': mode,
             'gpt_time': state['gpt_total_time'],
-            'claude_time': state['claude_total_time']
+            'claude_time': state['claude_total_time'],
+            'first': state.get('round_starter', 'X'),
+            'moves': list(state['moves']),
+            'result': result,
         })
+        # Real rounds count toward the all-time history the moment they end; Test mode never does.
+        if mode != 'test':
+            profiles = player_profiles(mode, state)
+            save_round({
+                'match_id': state.get('match_id'),
+                'round': state['current_game'],
+                'rounds_total': state['total_games'],
+                'finished_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
+                'mode': mode,
+                'gpt_name': profiles['gpt']['name'],
+                'claude_name': profiles['claude']['name'],
+                'gpt_effort': state.get('gpt_effort', 'default'),
+                'claude_effort': state.get('claude_effort', 'default'),
+                'starter': 'gpt' if state.get('round_starter') == state['gpt_mark'] else 'claude',
+                'winner': 'draw' if result == 'draw' else model,
+                'moves': list(state['moves']),
+                'gpt_time': state['gpt_total_time'],
+                'claude_time': state['claude_total_time'],
+            })
     else:
         # Switch turns
         state['current_turn'] = 'O' if current_turn == 'X' else 'X'
@@ -311,6 +399,7 @@ def next_game():
     # Whoever went second last round goes first this round
     state['board'] = {coord: '.' for coord in COORDS}
     state['round_starter'] = 'O' if state.get('round_starter', 'X') == 'X' else 'X'
+    state['moves'] = []
     state['current_turn'] = state['round_starter']
     state['game_over'] = False
     state['winner'] = None
@@ -380,4 +469,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.test:
         app.config['TEST_MODE'] = True
+    init_round_history()
     app.run(host='127.0.0.1', debug=False, port=args.port)
