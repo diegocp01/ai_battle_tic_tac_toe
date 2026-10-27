@@ -2,7 +2,7 @@
 
 Configure a Codex-versus-Claude tic-tac-toe match, then follow its moves, timings, and results. Every real round is saved locally, so the all-time record builds up match by match.
 
-![The New match setup page with model pickers, effort sliders, and Universal stats](static/img/image.png)
+![GPT-6.1-Sol (X) and Claude Opus 5.5 (O) mid-game, with each model's latest explanation beside the board](static/img/game.webp)
 
 ## Quickstart: local CLIs, no API keys
 
