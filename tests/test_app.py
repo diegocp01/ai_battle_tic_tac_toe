@@ -233,6 +233,39 @@ class ArenaTests(unittest.TestCase):
         app_module.init_round_history()
         self.assertEqual(len(json.loads(self.history.read_text())['rounds']), 1)
 
+    def test_from_round_two_both_players_get_the_same_short_summary_of_earlier_rounds(self):
+        prompts = []
+
+        def remember(mode, model, prompt, board, **settings):
+            prompts.append((model, prompt))
+            return self.first_empty_square(mode, model, prompt, board)
+
+        self.start('local', games=2)
+        with patch('app.choose_move', side_effect=remember):
+            while not self.client.post('/api/next-move').json['game_state']['game_over']:
+                pass
+            round_one = self.client.get('/api/game-state').json['game_history'][0]
+            self.client.post('/api/next-game')
+            first_move_of_round_two = len(prompts)
+            while not self.client.post('/api/next-move').json['game_state']['game_over']:
+                pass
+        self.assertTrue(all('Earlier rounds' not in prompt for _, prompt in prompts[:first_move_of_round_two]))
+        summaries = {prompt.split('\n\n')[1] for _, prompt in prompts[first_move_of_round_two:]}
+        self.assertEqual(len(summaries), 1, 'Codex and Claude must see the identical summary')
+        summary = summaries.pop()
+        self.assertIn(f"Round 1: {round_one['first']} first: {' '.join(round_one['moves'])}.", summary)
+        self.assertIn(f"{round_one['result']} won." if round_one['result'] != 'draw' else 'Draw.', summary)
+        self.assertEqual({model for model, _ in prompts[first_move_of_round_two:]}, {'gpt', 'claude'})
+
+    def test_earlier_rounds_summary_keeps_the_latest_rounds_within_100_words(self):
+        history = [{'game': game, 'first': 'X' if game % 2 else 'O', 'moves': ['B2', 'A1', 'C3', 'C1', 'B1', 'B3', 'A2', 'C2', 'A3'], 'result': 'draw'}
+                   for game in range(1, 10)]
+        summary = app_module.previous_rounds_summary(history)
+        self.assertLessEqual(len(summary.split()), 100)
+        self.assertIn('Round 9:', summary)
+        self.assertNotIn('Round 1:', summary)
+        self.assertEqual(app_module.previous_rounds_summary([]), '')
+
     def test_damaged_history_is_reported_and_never_overwritten(self):
         for invalid in ['not JSON', '[]', '{"rounds": {}}', '{"rounds": ["bad"]}']:
             self.history.write_text(invalid)

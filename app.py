@@ -137,6 +137,7 @@ def init_game_state(mode=None):
         'claude_mark': 'O',
         'current_turn': first,
         'round_starter': first,
+        'moves': [],
         'game_over': False,
         'winner': None,
         'gpt_reasoning': '',
@@ -153,7 +154,28 @@ def init_game_state(mode=None):
         'claude_last_time': 0.0,
     }
 
-def board_to_string(board, player_mark):
+SUMMARY_WORD_LIMIT = 100
+
+
+def previous_rounds_summary(history):
+    """Earlier rounds of this match, as a human would remember them: identical for both players, at most 100 words.
+
+    Keeps the most recent rounds that fit; each lists who moved first, every square in play order, and the result.
+    """
+    header = 'Earlier rounds this match (squares in play order; marks alternate from the first mover):'
+    lines = []
+    for entry in reversed(history):
+        if not entry.get('moves'):
+            continue
+        result = 'Draw.' if entry.get('result') == 'draw' else f"{entry.get('result')} won."
+        line = f"Round {entry['game']}: {entry['first']} first: {' '.join(entry['moves'])}. {result}"
+        if len(' '.join([header, line, *lines]).split()) > SUMMARY_WORD_LIMIT:
+            break
+        lines.insert(0, line)
+    return '\n'.join([header, *lines]) if lines else ''
+
+
+def board_to_string(board, player_mark, earlier_rounds=''):
     """Convert board dict to string prompt for the models."""
     lines = []
     for row in [1, 2, 3]:
@@ -163,9 +185,10 @@ def board_to_string(board, player_mark):
             row_parts.append(f"{coord}={board[coord]}")
         lines.append(", ".join(row_parts))
     
+    memory = f"{earlier_rounds}\n\n" if earlier_rounds else ''
     return f"""You are {player_mark}.
 
-Coordinates:
+{memory}Coordinates:
 Rows: 1,2,3
 Cols: A,B,C
 
@@ -270,7 +293,7 @@ def next_move():
     model = 'gpt' if state['gpt_mark'] == current_turn else 'claude'
     mode = effective_mode(state.get('mode'))
     state['mode'] = mode
-    prompt = board_to_string(state['board'], current_turn)
+    prompt = board_to_string(state['board'], current_turn, previous_rounds_summary(state['game_history']))
     start_time = time.monotonic()
     try:
         move, reasoning = choose_move(mode, model, prompt, state['board'], selected_model=state.get(model + '_model'), effort=state.get(model + '_effort'))
@@ -286,6 +309,7 @@ def next_move():
         return jsonify({'error': f'Invalid move: {move}'}), 400
     
     state['board'][move] = current_turn
+    state.setdefault('moves', []).append(move)
     
     # Check for winner
     result = check_winner(state['board'])
@@ -315,7 +339,10 @@ def next_move():
             'winner_model': None if result == 'draw' else model,
             'mode': mode,
             'gpt_time': state['gpt_total_time'],
-            'claude_time': state['claude_total_time']
+            'claude_time': state['claude_total_time'],
+            'first': state.get('round_starter', 'X'),
+            'moves': list(state['moves']),
+            'result': result,
         })
         # Real rounds count toward the all-time history the moment they end; Test mode never does.
         if mode != 'test':
@@ -332,7 +359,7 @@ def next_move():
                 'claude_effort': state.get('claude_effort', 'default'),
                 'starter': 'gpt' if state.get('round_starter') == state['gpt_mark'] else 'claude',
                 'winner': 'draw' if result == 'draw' else model,
-                'moves': sum(value != '.' for value in state['board'].values()),
+                'moves': list(state['moves']),
                 'gpt_time': state['gpt_total_time'],
                 'claude_time': state['claude_total_time'],
             })
@@ -372,6 +399,7 @@ def next_game():
     # Whoever went second last round goes first this round
     state['board'] = {coord: '.' for coord in COORDS}
     state['round_starter'] = 'O' if state.get('round_starter', 'X') == 'X' else 'X'
+    state['moves'] = []
     state['current_turn'] = state['round_starter']
     state['game_over'] = False
     state['winner'] = None
