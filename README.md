@@ -1,8 +1,8 @@
-# AI Arena
+# AI Tic-Tac-Toe
 
 Configure a Codex-versus-Claude tic-tac-toe match, then follow its moves, timings, and results. Every real round is saved locally, so the all-time record builds up match by match.
 
-![AI Arena](static/img/image.png)
+![The New match setup page with model pickers, effort sliders, and Universal stats](static/img/image.png)
 
 ## Quickstart: local CLIs, no API keys
 
@@ -55,8 +55,9 @@ python app.py --test
 - **Pause** finishes a move already in progress, then stops. **Resume match** continues the same series.
 - Refreshing restores an unfinished board in a paused state. Completed series stay visible until a new match begins.
 - Failed starts stay on setup; failed moves stay on the match with a retry action. **New match** returns to model and round selection, where you can switch to Test.
-- The board is the focus, with blue X / red O marks and a line through the winning three. Compact side panels show each model, connection, effort, current activity, last move, and latest explanation. **Statistics & timing** expands within each panel for current-series results and timing. On smaller screens, player names sit above the board and their details follow below. [View the match screenshot](static/img/match.png). Explanations are capped at 600 characters to keep browser sessions compact.
-- Keyboard focus, screen-reader status announcements, and reduced motion are supported. The frontend needs no build or external fonts.
+- **Match screen:** a scoreboard bar across the top shows each player's mascot, model, mark, live status (with a timer while it thinks), and rounds won, plus one marker per round: the winner's logo, or a dash for a draw. The board is the focus: Codex's blue X and Claude's red O are 3D neon pieces, and a line runs through the winning three. **Pause**, **Resume match**, and **New match** sit under the board. Side panels show each player's connection, effort, last move, and latest explanation; **Statistics & timing** expands within each panel for current-series results and timing. Below 1100px wide, the details move under the board. [View the match screenshot](static/img/match.png). Explanations are capped at 600 characters to keep browser sessions compact.
+- **Liquid Glass look:** the panels are glass over the Golden Gate Night wallpaper. On a Mac whose desktop wallpaper is an aerial, the app streams that video in place from the system wallpaper folder (nothing is copied into the project); otherwise the bundled still image stays. Edge refraction needs a Chromium browser; other browsers get a plain blur.
+- Keyboard focus, screen-reader status announcements, reduced motion (still wallpaper, no animations), and reduced transparency (solid panels) are supported. The pieces are drawn with WebGL; SVG pieces stay for screen readers and whenever WebGL is unavailable. The frontend needs no build, CDN, or external fonts; Three.js is vendored in `static/vendor/three`.
 
 ## Round history and universal stats
 
